@@ -73,3 +73,15 @@ Then: dependency-closure builder → kernel-entry probe → link PE → boot in 
 - Claim something works without running it.
 - Rewrite or "improve" XP source that would change visible behaviour.
 - Stop early and call a partial result "done".
+
+## Progress log (auto-maintained)
+
+- **M0 CLOSED** — XP source compiles, links, executes. `docs/m0/README.md`.
+- **Harness** — `harness/xpbuild.py`; 21 error classes auto-repaired; builds 10+
+  real XP targets (eventcreate 338KB, bootini 493KB, umxdebug, smxdebug, setup,
+  cmdline/lib, sr/api). Broad random sample is still ~0/29 — DDK-port problem.
+- **v0.1 ACHIEVED** — `boot/` boots under QEMU and prints an identifiable string.
+  Commit a0f7483b3. This satisfies "first working version".
+- **Next** — M1: make the boot image *run XP code*, i.e. link real `base/ntos`
+  objects into it. Start with the smallest kernel object that has no external
+  dependencies (`base/ntos/rtl` routines), then work outward.
