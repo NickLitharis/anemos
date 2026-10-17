@@ -276,8 +276,8 @@ typedef struct _UNICODE_PREFIX_TABLE_ENTRY {
 typedef struct _UNICODE_PREFIX_TABLE {
     CSHORT NodeTypeCode;
     CSHORT NameLength;
-    PUNICODE_PREFIX_TABLE_ENTRY *NextPrefixTree;
-    PUNICODE_PREFIX_TABLE_ENTRY *LastNextEntry;
+    PUNICODE_PREFIX_TABLE_ENTRY NextPrefixTree;
+    PUNICODE_PREFIX_TABLE_ENTRY LastNextEntry;
 } UNICODE_PREFIX_TABLE, *PUNICODE_PREFIX_TABLE;
 
 typedef enum _TABLE_SEARCH_RESULT {
@@ -364,5 +364,41 @@ static __inline__ unsigned char RtlCheckBit_prv(PRTL_BITMAP b, ULONG i) {
 /* splay/AVL link predicates from ntrtlp.h */
 #define RtlIsLeftChild(L)  ((L)->Parent != 0 && (L)->Parent->LeftChild == (L))
 #define RtlIsRightChild(L) ((L)->Parent != 0 && (L)->Parent->RightChild == (L))
+
+
+/* splay link accessors, verbatim macro bodies from public/sdk/inc/ntrtl.h */
+#define RtlParent(Links)    ((struct _RTL_SPLAY_LINKS *)(Links)->Parent)
+#define RtlLeftChild(Links) ((struct _RTL_SPLAY_LINKS *)(Links)->LeftChild)
+#define RtlRightChild(Links)((struct _RTL_SPLAY_LINKS *)(Links)->RightChild)
+#define RtlIsRoot(Links)    ((Links)->Parent == 0)
+
+
+/* splay-tree primitives: macro bodies verbatim from public/sdk/inc/ntrtl.h */
+#define RtlInitializeSplayLinks(Links) {                     \
+    struct _RTL_SPLAY_LINKS *_S = (struct _RTL_SPLAY_LINKS *)(Links); \
+    _S->Parent = _S; _S->LeftChild = 0; _S->RightChild = 0;  \
+}
+#define RtlInsertAsLeftChild(ParentLinks, ChildLinks) {      \
+    struct _RTL_SPLAY_LINKS *_P = (struct _RTL_SPLAY_LINKS *)(ParentLinks); \
+    struct _RTL_SPLAY_LINKS *_C = (struct _RTL_SPLAY_LINKS *)(ChildLinks);  \
+    _P->LeftChild = _C; _C->Parent = _P;                     \
+}
+#define RtlInsertAsRightChild(ParentLinks, ChildLinks) {     \
+    struct _RTL_SPLAY_LINKS *_P = (struct _RTL_SPLAY_LINKS *)(ParentLinks); \
+    struct _RTL_SPLAY_LINKS *_C = (struct _RTL_SPLAY_LINKS *)(ChildLinks);  \
+    _P->RightChild = _C; _C->Parent = _P;                    \
+}
+
+
+static __inline__ unsigned long RtlCompareMemory(const void *a, const void *b, unsigned long n) {
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    unsigned long i = 0; while (i < n && x[i] == y[i]) i++; return i;
+}
+
+
+struct _RTL_SPLAY_LINKS *RtlSubtreePredecessor(struct _RTL_SPLAY_LINKS *);
+struct _RTL_SPLAY_LINKS *RtlSubtreeSuccessor(struct _RTL_SPLAY_LINKS *);
+struct _RTL_SPLAY_LINKS *RtlRealPredecessor(struct _RTL_SPLAY_LINKS *);
+struct _RTL_SPLAY_LINKS *RtlRealSuccessor(struct _RTL_SPLAY_LINKS *);
 
 #endif /* _XPKERNEL_H_ */
