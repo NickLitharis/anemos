@@ -42,3 +42,33 @@ See `kernel/README2.md`.
 bootini 493 KB, umxdebug.dll, smxdebug, setup, cmdline.lib, sr/api, pstodib).
 21 error classes auto-repaired. Broad random sample across the whole tree is
 still ~0/29 — that is the DDK-port problem, not a harness defect.
+
+---
+
+## v1.0 — the STATUS→DOS error table (835 pairs)
+
+`base/ntos/rtl/generr.c` turned out to be **data, not runtime code**: it holds
+`LONG CodePairs[]`, the authoritative status/DOS pair list that the razzle build
+feeds to `generr.exe` to emit `RtlpRunTable`. That generator cannot be run here,
+so `kernel/gen_runtable.py` emits the runtime table from the same data, resolving
+each name through the tree's own `ntstatus.h` / `winerror.h`.
+
+- 835/838 pairs resolved (3 are the file's marker strings).
+- `kernel/src/runtable_gen.c` is generated and checked in; regenerate with
+  `python3 kernel/gen_runtable.py`.
+
+Spot-checked in-guest against documented Windows behaviour:
+
+```
+pairs=343 (0x343 = 835) OK
+ACCESS_DENIED=5 OK        NO_MEMORY=8 OK        NOT_FOUND=2 OK
+INVALID_HANDLE=6 OK       BUFFER_OVERFLOW=EA OK (ERROR_MORE_DATA, per generr.c)
+```
+
+`libxprtl.a` now holds **146 routines / 15 XP sources**.
+
+### Repeated lesson
+
+`puthex` writes hexadecimal. `0x343` is 835. I twice read a correct result as a
+failure because of this — the in-guest assertions were right both times. Read
+the base before drawing a conclusion.
