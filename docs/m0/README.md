@@ -96,3 +96,43 @@ So the executable is not merely well-formed, it runs XP source code.
 **The tree is compilable, linkable and executable with a modern free toolchain.**
 The remaining work is build-system engineering, not a port. The precedent that matters for
 every later milestone: **use the toolchain's Win32 headers, not the in-tree SDK headers.**
+
+---
+
+## Build harness (`harness/xpbuild.py`)
+
+Turns the hand-driven M0 process into a repeatable one. Reads a razzle `sources`
+file and drives llvm-mingw, repairing the error classes automatically.
+
+```sh
+./harness/xpbuild.py <tree-relative-dir>    # build one target
+./harness/xpbuild.py --scan 25              # build first N discovered targets
+./harness/xpbuild.py --report               # error-class statistics from the ledger
+```
+
+### Error classes it repairs
+
+| Class | What it does |
+|---|---|
+| C1 case | case-insensitive mirror of every header a target names |
+| C2/C14 `.mc` | generates message headers from `MessageId=`/`SymbolicName=` (incl. cross-tree lookups and `;#define` passthrough) |
+| C6 pch | replaces `#include "pch.h"` with the real header set it implied |
+| C7 entry | renames `_wmain`/`_main` to what mingw's CRT expects; handles GUI vs console |
+| C11 sibling lib | finds a symbol's home directory, builds that `sources` library, relinks |
+| C12 C++ | compiles `.cpp` as C++ with MSVC leniency, not as C |
+| C13/15 native NT | stub `nt.h`/`ntrtl.h`/`ntstatus.h` with the NT type vocabulary |
+| types | DYNLINK -> `-shared .dll`; LIBRARY -> objects only |
+
+### Measured coverage (random sample, pure-C targets)
+
+`4/12` built. Built: `admin/cmdline/eventcreate`, `admin/cmdline/lib`,
+`admin/netui/admin/user/umxdebug` (DLL), `admin/netui/macprint/pstodib/lib`,
+`admin/dsclientnt4/setup/setup`.
+
+Ledger over 23 targets: C1_case 11, C10_unknown 6, C2_mc 2, C6_pch 1, C9 1.
+
+**Interpretation:** filename casing dominates (11/12 targets needed it), so the
+single highest-value tree-level fix is a global case-insensitive index, not more
+per-target shims. The remaining `C10_unknown` failures are DDK type-vocabulary
+gaps (`TARRAY`, `_wfinddata32_t` collisions) — the same boundary M1 will hit, and
+not harness defects.
