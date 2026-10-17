@@ -43,7 +43,7 @@ LIBS = {
     "userenv": "userenv", "version": "version", "comctl32": "comctl32",
     "comdlg32": "comdlg32", "winspool": "winspool", "winmm": "winmm",
     "crypt32": "crypt32", "wintrust": "wintrust", "dnsapi": "dnsapi",
-    "iphlpapi": "iphlpapi", "setupapi": "setupapi", "msvcrt": None, "ntdll": None,
+    "iphlpapi": "iphlpapi", "setupapi": "setupapi", "msvcrt": "msvcrt", "ntdll": "ntdll",
     "uuid": "uuid", "rpcrt4": "rpcrt4", "oleacc": "oleacc", "psapi": "psapi",
     "odbc32": "odbc32", "odbcp32": "odbc32", "wtsapi32": "wtsapi32",
     "netapi32l": "netapi32", "activeds": "activeds", "adsiid": "adsiid",
@@ -64,6 +64,7 @@ CLASSES = {
     "C11_sibling_library": "symbols supplied by a sibling in-tree library",
     "C12_cxx": "C++ target: needs the C++ stdlib and MSVC compatibility mode",
     "C13_nt_native": "native NT headers (nt.h etc.) included by user-mode pch; needs a DDK type shim (M1-class)",
+    "C16_typedef_clash": "tree header redefines a type the toolchain already provides",
 }
 
 
@@ -142,6 +143,8 @@ def read_sources(rel: str) -> Target | None:
     t.defines = [d for d in var("C_DEFINES").split() if d.startswith("-D")]
     t.defines += [d for d in var("MSC_WARNING_LEVEL").split() if d.startswith("-D")]
 
+    if (var("USE_NTDLL") or "").strip() == "1":
+        t.libs.append("ntdll")
     for tok in var("TARGETLIBS").split():
         base = Path(tok.replace("\\", "/")).name.lower()
         if base.endswith(".lib"):
@@ -192,6 +195,8 @@ def classify(stderr: str) -> list[str]:
         found.append("C4_abi")
     if re.search(r"expected 'volatile', 'inline', 'goto'", stderr):
         found.append("C3_msasm")
+    if re.search(r"typedef redefinition with different types", stderr):
+        found.append("C16_typedef_clash")
     if re.search(r"error: no such file or directory: '.*\.mc'", stderr):
         found.append("C2_mc")
     if not found:
@@ -314,7 +319,12 @@ NT_NATIVE = {"nt", "ntrtl", "nturtl", "ntexapi", "ntimage", "zwapi", "ntosdef",
 TOOLCHAIN_OWNED = {"windows", "winbase", "winnt", "windef", "winuser", "wingdi",
                    "stdio", "stdlib", "string", "wchar", "tchar", "security", "secext",
                    "lm", "lmaccess", "lmapibuf", "lmerr", "sspi", "winerror",
-                   "uint_ptr", "int_ptr"}
+                   "uint_ptr", "int_ptr",
+                   # CRT headers: the toolchain's runtime is authoritative
+                   "io", "fcntl", "sys/stat", "stat", "limits", "float", "math", "time",
+                   "ctype", "errno", "locale", "signal", "setjmp", "stdarg", "stddef",
+                   "malloc", "memory", "process", "direct", "conio", "share", "sys/types",
+                   "sys/stat", "assert", "complex", "search", "stdint", "inttypes"}
 
 
 def prepare_any(src_dir: Path, work: Path) -> dict:
@@ -368,6 +378,27 @@ def prepare_any(src_dir: Path, work: Path) -> dict:
     return info
 
 
+KNOWN_TYPE_HEADERS = {
+    "BOOT_ENTRY": "ntexapi.h", "PBOOT_ENTRY": "ntexapi.h",
+    "BOOT_ENTRY_LIST": "ntexapi.h", "PBOOT_ENTRY_LIST": "ntexapi.h",
+    "FILE_PATH": "ntexapi.h", "PFILE_PATH": "ntexapi.h",
+}
+
+
+def detect_needed_types(src_dir: Path) -> list[str]:
+    """Headers whose types the target uses but does not include (MSVC pch gave them)."""
+    names: set[str] = set()
+    for f in list(src_dir.glob("*.c")) + list(src_dir.glob("*.cpp")) + list(src_dir.glob("*.h")):
+        try:
+            text = f.read_text(encoding="latin-1")
+        except Exception:
+            continue
+        for tok, hdr in KNOWN_TYPE_HEADERS.items():
+            if re.search(rf"\b{tok}\b", text):
+                names.add(hdr)
+    return sorted(names)
+
+
 def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
     """Create the scratch mirror with C1/C2/C6 repairs applied."""
     info: dict = {"classes": set(), "units": []}
@@ -415,7 +446,35 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
                "#include <basetsd.h>\n"
                "#include <windows.h>\n"
                "#ifndef _NT_STUB_TYPES_\n#define _NT_STUB_TYPES_\n"
+               "#define __UNICODE_STRING_DEFINED\n"
+               "#define __STRING_DEFINED\n"
                "typedef LONG NTSTATUS;\n"
+               "typedef SHORT CSHORT;\n"
+               "typedef struct _KSYSTEM_TIME { ULONG LowPart; LONG High1Time; LONG High2Time; } KSYSTEM_TIME, *PKSYSTEM_TIME;\n"
+               "typedef enum _NT_PRODUCT_TYPE { NtProductWinNt, NtProductLanManNt, NtProductServer }"
+               " NT_PRODUCT_TYPE, *PNT_PRODUCT_TYPE;\n"
+               "#define SE_MIN_WELL_KNOWN_PRIVILEGE (2L)\n"
+               "#define SE_CREATE_TOKEN_PRIVILEGE (2L)\n"
+               "#define SE_ASSIGNPRIMARYTOKEN_PRIVILEGE (3L)\n"
+               "#define SE_LOCK_MEMORY_PRIVILEGE (4L)\n"
+               "#define SE_INCREASE_QUOTA_PRIVILEGE (5L)\n"
+               "#define SE_SECURITY_PRIVILEGE (8L)\n"
+               "#define SE_TAKE_OWNERSHIP_PRIVILEGE (9L)\n"
+               "#define SE_LOAD_DRIVER_PRIVILEGE (10L)\n"
+               "#define SE_SYSTEM_PROFILE_PRIVILEGE (11L)\n"
+               "#define SE_SYSTEMTIME_PRIVILEGE (12L)\n"
+               "#define SE_DEBUG_PRIVILEGE (20L)\n"
+               "#define SE_BACKUP_PRIVILEGE (17L)\n"
+               "#define SE_RESTORE_PRIVILEGE (18L)\n"
+               "#define SE_SHUTDOWN_PRIVILEGE (19L)\n"
+               "#define SE_CHANGE_NOTIFY_PRIVILEGE (23L)\n"
+               "#define SE_UNDOCK_PRIVILEGE (24L)\n"
+               "#define SE_SYSTEM_ENVIRONMENT_PRIVILEGE (22L)\n"
+               "#define SE_MAX_WELL_KNOWN_PRIVILEGE SE_UNDOCK_PRIVILEGE\n"
+               "typedef USHORT UCHAR_SHORT;\n"
+               "typedef UCHAR *PUCHAR;\n"
+               "typedef ULONG *PULONG;\n"
+               "typedef USHORT *PUSHORT;\n"
                "typedef struct _UNICODE_STRING { USHORT Length; USHORT MaximumLength; PWSTR Buffer; }"
                " UNICODE_STRING, *PUNICODE_STRING;\n"
                "typedef UNICODE_STRING STRING, *PSTRING, ANSI_STRING, *PANSI_STRING;\n"
@@ -444,6 +503,33 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
                "#define OBJ_OPENLINK 0x00000100L\n"
                "#define OBJ_KERNEL_HANDLE 0x00000200L\n"
                "typedef enum _EVENT_TYPE { NotificationEvent, SynchronizationEvent } EVENT_TYPE;\n"
+               "typedef enum _TIMER_TYPE { NotificationTimer, SynchronizationTimer } TIMER_TYPE;\n"
+               "typedef enum _WAIT_TYPE { WaitAll, WaitAny, WaitNotification } WAIT_TYPE;\n"
+               "typedef LARGE_INTEGER PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;\n"
+               "typedef enum _INTERFACE_TYPE { InterfaceTypeUndefined = -1, Internal, Isa, Eisa,"
+               " MicroChannel, TurboChannel, PCIBus, VMEBus, NuBus, PCMCIABus, CBus, MPIBus,"
+               " MPSABus, ProcessorInternal, InternalPowerBus, PNPISABus, PNPBus, MaximumInterfaceType }"
+               " INTERFACE_TYPE, *PINTERFACE_TYPE;\n"
+               "typedef enum _BUS_DATA_TYPE { ConfigurationSpaceUndefined = -1, Cmos, EisaConfiguration,"
+               " Pos, CbusConfiguration, PCIConfiguration, VMEConfiguration } BUS_DATA_TYPE, *PBUS_DATA_TYPE;\n"
+               "typedef enum _KWAIT_REASON { Executive, FreePageWait, PageIn, PoolAllocation,"
+               " DelayExecution, Suspended, UserRequest, WrExecutive } KWAIT_REASON;\n"
+               "typedef enum _KTHREAD_STATE { Initialized, Ready, Running, Standby, Terminated,"
+               " Waiting, Transition, DeferredReady } KTHREAD_STATE;\n"
+               "typedef struct _KTIMER { ULONG dummy; } KTIMER, *PKTIMER;\n"
+               "typedef struct _KEVENT { ULONG dummy; } KEVENT, *PKEVENT;\n"
+               "typedef struct _KDPC { ULONG dummy; } KDPC, *PKDPC;\n"
+               "typedef struct _KSEMAPHORE { ULONG dummy; } KSEMAPHORE, *PKSEMAPHORE;\n"
+               "typedef struct _KMUTANT { ULONG dummy; } KMUTANT, *PKMUTANT;\n"
+               "typedef struct _PORT_MESSAGE { union { struct { CSHORT DataLength; CSHORT TotalLength; } s1;"
+               " ULONG Length; } u1; union { struct { CSHORT Type; CSHORT DataInfoOffset; } s2; ULONG ZeroInit; } u2;"
+               " union { CLIENT_ID ClientId; double DoNotUseThisField; } u3; ULONG MessageId; }"
+               " PORT_MESSAGE, *PPORT_MESSAGE;\n"
+               "typedef struct _LPC_MESSAGE { ULONG dummy; } LPC_MESSAGE, *PLPC_MESSAGE;\n"
+               "typedef enum _KPRIORITY { LowPriority = 0, NormalPriority = 8, HighPriority = 13,"
+               " RealTimePriority = 24 } KPRIORITY;\n"
+               "typedef enum _KPROFILE_SOURCE { ProfileTime, ProfileAlignmentFixup, ProfileTotalIssues } KPROFILE_SOURCE;\n"
+               "typedef enum _MEMORY_CACHING_TYPE { MmNonCached, MmCached, MmWriteCombined } MEMORY_CACHING_TYPE;\n"
                "#define FILE_SYNCHRONOUS_IO_NONALERT 0x00000020L\n"
                "#define FILE_SYNCHRONOUS_IO_ALERT 0x00000010L\n"
                "#define FILE_NON_DIRECTORY_FILE 0x00000040L\n"
@@ -454,6 +540,32 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
                "#define FILE_DIRECTORY_FILE 0x00000001L\n"
                "#define SYNCHRONIZE 0x00100000L\n"
                "#define OBJ_KERNEL_HANDLE_DUMMY 0\n"
+               "/* types the XP pch chain pulled in implicitly */\n"
+               "#if defined(_XP_NEEDS_NTEXAPI)\n#include <ntexapi.h>\n#endif\n"
+               "#define STATUS_NOT_IMPLEMENTED ((NTSTATUS)0xC0000002L)\n"
+               "#define STATUS_INVALID_HANDLE ((NTSTATUS)0xC0000008L)\n"
+               "#define STATUS_INFO_LENGTH_MISMATCH ((NTSTATUS)0xC0000004L)\n"
+               "#define STATUS_INVALID_DEVICE_REQUEST ((NTSTATUS)0xC0000010L)\n"
+               "#define STATUS_END_OF_FILE ((NTSTATUS)0xC0000011L)\n"
+               "#define STATUS_NO_MEMORY ((NTSTATUS)0xC0000017L)\n"
+               "#define STATUS_INVALID_PARAMETER_1 ((NTSTATUS)0xC00000EFL)\n"
+               "#define STATUS_OBJECT_NAME_INVALID ((NTSTATUS)0xC0000033L)\n"
+               "#define STATUS_OBJECT_NAME_COLLISION ((NTSTATUS)0xC0000035L)\n"
+               "#define STATUS_OBJECT_PATH_SYNTAX_BAD ((NTSTATUS)0xC000003BL)\n"
+               "#define STATUS_NOT_SUPPORTED ((NTSTATUS)0xC00000BBL)\n"
+               "#define STATUS_PRIVILEGE_NOT_HELD ((NTSTATUS)0xC0000061L)\n"
+               "#ifndef _LIST_MACROS_DEFINED\n#define _LIST_MACROS_DEFINED\n"
+               "#ifndef InitializeListHead\n"
+               "#define InitializeListHead(l) do { (l)->Flink = (l)->Blink = (l); } while (0)\n"
+               "#define IsListEmpty(l) ((l)->Flink == (l))\n"
+               "#define InsertHeadList(h,e) do { (e)->Flink=(h)->Flink; (e)->Blink=(h); (h)->Flink->Blink=(e); (h)->Flink=(e); } while (0)\n"
+               "#define InsertTailList(h,e) do { (e)->Flink=(h); (e)->Blink=(h)->Blink; (h)->Blink->Flink=(e); (h)->Blink=(e); } while (0)\n"
+               "#define RemoveEntryList(e) do { (e)->Blink->Flink=(e)->Flink; (e)->Flink->Blink=(e)->Blink; } while (0)\n"
+               "#define RemoveHeadList(h) ((h)->Flink)\n"
+               "#endif\n#endif\n"
+               "#define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)\n"
+               "#ifndef NT_ERROR\n#define NT_ERROR(Status) ((((NTSTATUS)(Status)) >> 30) == 3)\n#endif\n"
+               "NTSTATUS NTAPI RtlAdjustPrivilege(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);\n"
                "#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)\n"
                "#define STATUS_OBJECT_NAME_NOT_FOUND ((NTSTATUS)0xC0000034L)\n"
                "#define STATUS_OBJECT_PATH_NOT_FOUND ((NTSTATUS)0xC000003AL)\n"
@@ -462,6 +574,15 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
                "#define STATUS_ACCESS_DENIED ((NTSTATUS)0xC0000022L)\n"
                "#define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)\n"
                "#endif\n")
+    needed = detect_needed_types(src_dir)
+    for hdr in needed:
+        dst = casemap / hdr
+        if not dst.exists():
+            pick = resolve_include(hdr, src_dir) or (headers().get(hdr.lower()) or [None])[0]
+            if pick:
+                shutil.copy(pick, dst)
+    prelude = prelude.replace("#define STATUS_SUCCESS",
+        "".join(f"#include <{hh}>\n" for hh in needed) + "#define STATUS_SUCCESS")
     for h in ("nt", "ntrtl", "nturtl", "ntexapi", "ntimage", "zwapi", "ntosdef",
               "ntdef", "hal", "ntstatus"):
         (ntstub / f"{h}.h").write_text(prelude)
@@ -723,6 +844,34 @@ def build(rel: str, verbose: bool = False) -> dict:
     link += [str(o) for o in objs]
     mapped = [LIBS[lib] for lib in t.libs if lib in LIBS and LIBS[lib]]
     link += [f"-l{l}" for l in dict.fromkeys(mapped)]
+
+    # C18: tree declares some Rtl* as cdecl while the toolchain's import lib
+    # exports stdcall-decorated names. Bridge with --defsym for the known set.
+    NT_BRIDGE = {
+        "_RtlNtStatusToDosError": "_RtlNtStatusToDosError@4",
+        "_RtlAdjustPrivilege": "_RtlAdjustPrivilege@16",
+    }
+    # C18: the tree declares some Rtl* as cdecl while the toolchain import libs
+    # export stdcall-decorated names (_Foo@N). Provide the cdecl spellings as C
+    # functions that forward to the decorated imports.
+    shim_src = work / "nt_shim.c"
+    shim_src.write_text(
+        "#include <windows.h>\n"
+        "/* C18: provide cdecl spellings for Rtl* the XP headers declare without WINAPI */\n"
+        "ULONG __stdcall RtlNtStatusToDosError_imp(NTSTATUS);\n"
+        "ULONG RtlNtStatusToDosError(NTSTATUS s) {\n"
+        "  return ((ULONG (__stdcall *)(NTSTATUS))GetProcAddress(GetModuleHandleA(\"ntdll.dll\"),"
+        " \"RtlNtStatusToDosError\"))(s);\n"
+        "}\n"
+        "NTSTATUS __stdcall RtlAdjustPrivilege_imp(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);\n"
+        "NTSTATUS RtlAdjustPrivilege(ULONG p, BOOLEAN e, BOOLEAN c, PBOOLEAN r) {\n"
+        "  return ((NTSTATUS (__stdcall *)(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN))"
+        "GetProcAddress(GetModuleHandleA(\"ntdll.dll\"), \"RtlAdjustPrivilege\"))(p,e,c,r);\n"
+        "}\n")
+    shim_obj = work / "nt_shim.o"
+    if subprocess.run([str(CC), "-c", str(shim_src), "-o", str(shim_obj),
+                       "-I" + str(work / "ntstub")], capture_output=True).returncode == 0:
+        link.append(str(shim_obj))
 
     proc = subprocess.run(link, capture_output=True, text=True)
 
