@@ -1,37 +1,52 @@
-# v0.1 — bootable image
-
-**Status: PASSING.** A freestanding i386 image built here boots under QEMU and
-emits an identifiable string over the debug console (port 0xE9).
+# v0.2 — real XP SP1 source executing under QEMU
 
 ```
 $ cd boot && ./build.sh ./out
-built ./out/xp-v01.elf
+built ./out/xp-v02.elf
 
-$ qemu-system-i386 -kernel ./out/xp-v01.elf -display none -debugcon file:./out/con.txt
-$ cat ./out/con.txt
-XP-MODERNIZATION-V0.1: harness binary executing under QEMU
+$ qemu-system-i386 -kernel ./out/xp-v02.elf -display none -debugcon file:./out/con2.txt
+$ cat ./out/con2.txt
+RtlUshortByteSwap(1234)=3412 OK
+RtlUlongByteSwap(12345678)=78563412 OK
+RtlUlonglongByteSwap(..55667788) low32=44332211 OK
+XP-MODERNIZATION-V0.2: XP SP1 RTL CODE EXECUTED UNDER QEMU
 ```
 
-## What this proves
+## What is proven
 
-- The toolchain that builds the XP tree can also produce a bootable image.
-- QEMU boots our image, transfers control to our code, and our code executes.
-- `-kernel` requires a multiboot header; the checksum is validated by QEMU, so a
-  wrong header fails loudly instead of silently doing nothing.
-- The verification is falsifiable: a broken image produces no output, and an
-  incorrect checksum makes QEMU refuse the file outright.
+Three routines from `Source/XPSP1/NT/base/ntos/rtl/byteswap.c` — **XP kernel
+source, routine bodies unchanged** — are compiled freestanding, linked into a
+bootable image, and executed by QEMU. Their return values are asserted against
+known-correct results inside the image, so a wrong answer prints FAIL and would
+not be silenced.
 
-## What this does not prove
+`boot/rtl/byteswap_standalone.c` is the XP file with only the two `#include`
+lines replaced by a minimal type prelude; the function bodies are byte-identical
+to the tree.
 
-That the XP kernel itself boots. The XP boot chain needs NT loader structures,
-the real HAL, and DDK internals the tree does not fully provide. Getting from
-here to the real kernel is the M1 problem described in MODERNIZATION_PLAN.md.
+## Two real bugs this caught
+
+1. **Calling convention.** The XP routines are `FASTCALL` (`__attribute__((fastcall))`
+   under GCC/Clang), so a cdecl prototype makes the caller push the argument on
+   the stack while the callee reads `%cx` — garbage in, wrong answer out. The
+   harness's generated headers must carry the calling convention, not just the type.
+2. **A wrong assertion of mine, not wrong XP code.** `RtlUlonglongByteSwap(0x1122334455667788)`
+   is `0x8877665544332211`, so the low 32 bits are `0x44332211`. I had asserted
+   `0x88776655` and the run failed — the correct outcome for a bad test.
+
+## Why this matters for the plan
+
+This is the first time **XP source runs on modern hardware through our own
+toolchain**. The remaining distance to a real kernel is dependency depth, not
+principle: `byteswap.c` needed only types, whereas `mm/` and `ke/` need the full
+NT internal vocabulary.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `hello.c` | freestanding entry, prints via outb to 0xE9, then halts |
-| `mb.c` | multiboot v1 header (magic, flags, checksum) |
-| `link.ld` | links at 0x100000 with `.multiboot` first |
+| `hello_rtl.c` | boots, calls the XP routines, asserts results, prints via port 0xE9 |
+| `rtl/byteswap_standalone.c` | XP `byteswap.c` with includes replaced by a prelude |
+| `mb.c` | multiboot v1 header |
+| `link.ld` | links at 0x100000, `.multiboot` first |
 | `build.sh` | builds the image with the same llvm-mingw that builds XPSP1 |
