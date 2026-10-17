@@ -231,6 +231,86 @@ def gen_mc_header(mc: Path, out: Path) -> int:
     return len(syms)
 
 
+
+# ---------------------------------------------------------------------------
+# Global case-insensitive include index (C1), built once and shared by all
+# targets. 22 of 23 sample targets needed case repair, so doing it per-target
+# was the dominant cost. Ambiguity rule: nearest ancestor of the target wins,
+# then the public SDK, then the shallowest path.
+# ---------------------------------------------------------------------------
+
+CI_ROOT = WORK / "fs"
+_CI_BUILT = False
+_CI_MAP: dict[str, list[Path]] = {}
+
+
+def build_case_index() -> dict[str, list[Path]]:
+    """Mirror every header name that differs from its on-disk casing."""
+    global _CI_BUILT, _CI_MAP
+    if _CI_BUILT:
+        return _CI_MAP
+    marker = CI_ROOT / ".complete"
+    if marker.is_file():
+        try:
+            _CI_MAP = {k: [Path(x) for x in v]
+                       for k, v in json.loads((CI_ROOT / ".map.json").read_text()).items()}
+            _CI_BUILT = True
+            return _CI_MAP
+        except Exception:
+            pass
+
+    CI_ROOT.mkdir(parents=True, exist_ok=True)
+    mapping: dict[str, list[Path]] = {}
+    n = 0
+    for p in TREE.rglob("*.h"):
+        mapping.setdefault(p.name.lower(), []).append(p)
+    _CI_MAP = mapping
+
+    # Materialise one copy per requested spelling that is not already the
+    # on-disk spelling. Copy the "best" candidate; the resolver picks per target.
+    made = 0
+    for lower, paths in mapping.items():
+        if lower in TOOLCHAIN_OWNED:
+            continue          # never shadow the toolchain's own headers
+        if len(paths) != 1:
+            continue          # ambiguous: resolved dynamically per target
+        real = paths[0]
+        if real.name == lower:
+            continue          # already lowercase, toolchain-safe
+        dst = CI_ROOT / lower
+        if dst.exists():
+            continue
+        try:
+            shutil.copy(real, dst)
+            made += 1
+        except Exception:
+            pass
+    (CI_ROOT / ".map.json").write_text(
+        json.dumps({k: [str(x) for x in v] for k, v in mapping.items()}))
+    marker.write_text(str(made))
+    _CI_BUILT = True
+    return mapping
+
+
+def resolve_include(name: str, src_dir: Path) -> Path | None:
+    """Pick the single best on-disk file for a case-mismatched include name."""
+    cands = _CI_MAP.get(Path(name).name.lower())
+    if not cands:
+        return None
+    # 1. a sibling of the including file always wins
+    for c in cands:
+        if c.parent == src_dir:
+            return c
+    # 2. the public SDK / shared admin include roots
+    public = [c for c in cands if "public" in c.parts]
+    if public:
+        return min(public, key=lambda c: len(c.parts))
+    # 3. shallowest path (widest-shared header)
+    return min(cands, key=lambda c: (len(c.parts), str(c)))
+
+NT_NATIVE = {"nt", "ntrtl", "nturtl", "ntexapi", "ntimage", "zwapi", "ntosdef",
+             "ntdef", "ntstatus", "hal", "ntkeapi", "ntddk", "ntifs", "nthal"}
+
 TOOLCHAIN_OWNED = {"windows", "winbase", "winnt", "windef", "winuser", "wingdi",
                    "stdio", "stdlib", "string", "wchar", "tchar", "security", "secext",
                    "lm", "lmaccess", "lmapibuf", "lmerr", "sspi", "winerror",
@@ -260,6 +340,7 @@ def prepare_any(src_dir: Path, work: Path) -> dict:
                         shutil.copy(f, dst)
                     except Exception:
                         pass
+    global_map = build_case_index()
     for src in list(src_dir.glob("*.c")) + list(src_dir.glob("*.cpp")) + list(src_dir.glob("*.h")):
         try:
             text = src.read_text(encoding="latin-1")
@@ -269,11 +350,14 @@ def prepare_any(src_dir: Path, work: Path) -> dict:
             want = Path(m.group(1).replace("\\", "/")).name
             if Path(want).stem.lower() in TOOLCHAIN_OWNED:
                 continue
+            if Path(want).stem.lower() in NT_NATIVE:
+                continue      # served by the ntstub, never by the tree
             if (casemap / want).exists():
                 continue
-            hits = headers().get(Path(want).name.lower())
+            hits = global_map.get(want.lower())
             if hits:
-                shutil.copy(hits[0], casemap / want)
+                pick = resolve_include(want, src_dir) or hits[0]
+                shutil.copy(pick, casemap / want)
                 info["classes"].add("C1_case")
             else:
                 # C14: the header is generated from a .mc file elsewhere in the tree
@@ -325,31 +409,59 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
     ntstub = work / "ntstub"
     ntstub.mkdir(exist_ok=True)
     prelude = ("#pragma once\n"
+               "/* NT-native stand-in. pch files include this BEFORE windows.h, so\n"
+               "   pull in the toolchain's own base type definitions first. */\n"
+               "#include <_mingw.h>\n"
+               "#include <basetsd.h>\n"
                "#include <windows.h>\n"
                "#ifndef _NT_STUB_TYPES_\n#define _NT_STUB_TYPES_\n"
                "typedef LONG NTSTATUS;\n"
-               "typedef ULONG_PTR UINT_PTR, *PUINT_PTR;\n"
-               "typedef LONG_PTR LONG_PTR;\n"
-               "typedef ULONG_PTR DWORD_PTR, *PDWORD_PTR;\n"
-               "typedef ULONG_PTR SIZE_T, *PSIZE_T;\n"
-               "typedef LONG_PTR SSIZE_T, *PSSIZE_T;\n"
                "typedef struct _UNICODE_STRING { USHORT Length; USHORT MaximumLength; PWSTR Buffer; }"
                " UNICODE_STRING, *PUNICODE_STRING;\n"
                "typedef UNICODE_STRING STRING, *PSTRING, ANSI_STRING, *PANSI_STRING;\n"
                "typedef struct _IO_STATUS_BLOCK { union { NTSTATUS Status; PVOID Pointer; }; ULONG_PTR Information; }"
                " IO_STATUS_BLOCK, *PIO_STATUS_BLOCK;\n"
-               "typedef struct _OBJECT_ATTRIBUTES { ULONG Length; HANDLE RootDirectory; UNICODE_STRING *ObjectName;"
-               " ULONG Attributes; PVOID SecurityDescriptor; PVOID SecurityQualityOfService; }"
-               " OBJECT_ATTRIBUTES, *POBJECT_ATTRIBUTES;\n"
+               "typedef struct _OBJECT_ATTRIBUTES { ULONG Length; HANDLE RootDirectory;"
+               " UNICODE_STRING *ObjectName; ULONG Attributes; PVOID SecurityDescriptor;"
+               " PVOID SecurityQualityOfService; } OBJECT_ATTRIBUTES, *POBJECT_ATTRIBUTES;\n"
+               "#define XP_IOA5(p,n,a,r,s) do { \\\n"
+               "  (p)->Length = sizeof(OBJECT_ATTRIBUTES); (p)->RootDirectory = r; \\\n"
+               "  (p)->Attributes = a; (p)->ObjectName = n; \\\n"
+               "  (p)->SecurityDescriptor = s; (p)->SecurityQualityOfService = NULL; } while (0)\n"
+               "#define XP_IOA6(p,n,a,r,s,_x) XP_IOA5(p,n,a,r,s)\n"
+               "#define XP_IOA_PICK(_1,_2,_3,_4,_5,_6,NAME,...) NAME\n"
+               "#define InitializeObjectAttributes(...) \\\n"
+               "  XP_IOA_PICK(__VA_ARGS__, XP_IOA6, XP_IOA5, XP_IOA5, XP_IOA5, XP_IOA5)(__VA_ARGS__)\n"
                "typedef struct _CLIENT_ID { PVOID UniqueProcess; PVOID UniqueThread; } CLIENT_ID, *PCLIENT_ID;\n"
-               "#endif\n"
+               "typedef struct _FILE_FULL_EA_INFORMATION { ULONG NextEntryOffset; UCHAR Flags;"
+               " UCHAR EaNameLength; USHORT EaValueLength; CHAR EaName[1]; }"
+               " FILE_FULL_EA_INFORMATION, *PFILE_FULL_EA_INFORMATION;\n"
+               "#define OBJ_INHERIT 0x00000002L\n"
+               "#define OBJ_PERMANENT 0x00000010L\n"
+               "#define OBJ_EXCLUSIVE 0x00000020L\n"
+               "#define OBJ_CASE_INSENSITIVE 0x00000040L\n"
+               "#define OBJ_OPENIF 0x00000080L\n"
+               "#define OBJ_OPENLINK 0x00000100L\n"
+               "#define OBJ_KERNEL_HANDLE 0x00000200L\n"
+               "typedef enum _EVENT_TYPE { NotificationEvent, SynchronizationEvent } EVENT_TYPE;\n"
+               "#define FILE_SYNCHRONOUS_IO_NONALERT 0x00000020L\n"
+               "#define FILE_SYNCHRONOUS_IO_ALERT 0x00000010L\n"
+               "#define FILE_NON_DIRECTORY_FILE 0x00000040L\n"
+               "#define FILE_OPEN 0x00000001L\n"
+               "#define FILE_CREATE 0x00000002L\n"
+               "#define FILE_OPEN_IF 0x00000003L\n"
+               "#define FILE_SUPERSEDE 0x00000000L\n"
+               "#define FILE_DIRECTORY_FILE 0x00000001L\n"
+               "#define SYNCHRONIZE 0x00100000L\n"
+               "#define OBJ_KERNEL_HANDLE_DUMMY 0\n"
                "#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)\n"
                "#define STATUS_OBJECT_NAME_NOT_FOUND ((NTSTATUS)0xC0000034L)\n"
                "#define STATUS_OBJECT_PATH_NOT_FOUND ((NTSTATUS)0xC000003AL)\n"
                "#define STATUS_UNSUCCESSFUL ((NTSTATUS)0xC0000001L)\n"
                "#define STATUS_BUFFER_TOO_SMALL ((NTSTATUS)0xC0000023L)\n"
                "#define STATUS_ACCESS_DENIED ((NTSTATUS)0xC0000022L)\n"
-               "#define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)\n")
+               "#define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000DL)\n"
+               "#endif\n")
     for h in ("nt", "ntrtl", "nturtl", "ntexapi", "ntimage", "zwapi", "ntosdef",
               "ntdef", "hal", "ntstatus"):
         (ntstub / f"{h}.h").write_text(prelude)
