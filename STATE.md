@@ -72,3 +72,32 @@ INVALID_HANDLE=6 OK       BUFFER_OVERFLOW=EA OK (ERROR_MORE_DATA, per generr.c)
 `puthex` writes hexadecimal. `0x343` is 835. I twice read a correct result as a
 failure because of this — the in-guest assertions were right both times. Read
 the base before drawing a conclusion.
+
+---
+
+## v1.1 — XP handle tables verified
+
+`base/ntos/rtl/handle.c` (9 routines) builds and verifies: allocate, free,
+validate by handle and by index, over XP's chunked handle tables.
+
+This needed three things that also unblock the wider RTL:
+
+- `RTL_CRITICAL_SECTION` / `_DEBUG` with the tree's real layout
+- `RTL_HANDLE_TABLE` / `_ENTRY` copied verbatim from `public/sdk/inc/nturtl.h`
+- `MEM_*` and `PAGE_*` constants harvested from the tree's `winnt.h` (12 + 16)
+- a freestanding `NtAllocateVirtualMemory`/`NtFreeVirtualMemory` shim over a
+  1 MB static arena (`kernel/src/arena.c`), so XP's allocation logic runs
+  unchanged
+
+### A test assumption corrected by reading XP's own comment
+
+`RtlAllocateHandle` deliberately leaves the ALLOCATED flag **clear**:
+
+> "Clear free list link field, which also leaves the handle allocated bit
+> clear. This allows the caller to mark it is allocated after they are done
+> filling in their portion."   — `handle.c`
+
+My test asserted the flag was set after allocation and reported FAIL. XP was
+right; the test was wrong. Corrected to set the bit as the caller would.
+
+`libxprtl.a`: 155 routines, 18 XP sources. 11 verified suites, all passing.
