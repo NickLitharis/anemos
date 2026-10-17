@@ -1,8 +1,0 @@
-InitUnicodeStringEx=0 OK
-u1.Length=A OK
-CompareString(ci)=0 OK
-EqualString(cs)=0 OK
-EqualString(ci)=1 OK
-UpperChar(a)=41 OK
-UpperChar(Z)=5A OK
-XP-MODERNIZATION-V0.5: XP string.c ROUTINES EXECUTED AND VERIFIED

@@ -73,6 +73,29 @@ static __inline__ long InterlockedDecrement(volatile long *d) {
 }
 #endif
 
+
+/* pointer-sized integers (normally from basetsd.h) */
+typedef unsigned long ULONG_PTR, *PULONG_PTR; typedef long LONG_PTR, *PLONG_PTR;
+typedef unsigned long DWORD_PTR, UINT_PTR; typedef long INT_PTR;
+
+
+/* LARGE_INTEGER helper inlines from ntrtl.h that the RTL sources call */
+#ifndef ARGUMENT_PRESENT
+#define ARGUMENT_PRESENT(p) ((p) != 0)
+#endif
+static __inline__ LARGE_INTEGER RtlExtendedLargeIntegerDivide(LARGE_INTEGER Dividend, ULONG Divisor, PULONG Remainder) {
+    LARGE_INTEGER q;
+    q.QuadPart = (ULONG64)Dividend.QuadPart / Divisor;
+    if (ARGUMENT_PRESENT(Remainder)) *Remainder = (ULONG)(Dividend.QuadPart % Divisor);
+    return q;
+}
+static __inline__ LARGE_INTEGER RtlLargeIntegerDivide(LARGE_INTEGER Dividend, LARGE_INTEGER Divisor, PLARGE_INTEGER Remainder) {
+    LARGE_INTEGER q;
+    q.QuadPart = Dividend.QuadPart / Divisor.QuadPart;
+    if (ARGUMENT_PRESENT(Remainder)) Remainder->QuadPart = Dividend.QuadPart % Divisor.QuadPart;
+    return q;
+}
+
 /* --- STATUS codes used by the RTL -------------------------------------- */
 #define STATUS_SUCCESS                  ((NTSTATUS)0x00000000L)
 #define STATUS_UNSUCCESSFUL             ((NTSTATUS)0xC0000001L)
@@ -172,10 +195,12 @@ static __inline__ void RtlInitAnsiString(STRING *d, const char *s) {
     d->Length = (unsigned short)n; d->MaximumLength = (unsigned short)(n + 1); d->Buffer = (char *)s;
 }
 static __inline__ NTSTATUS RtlAnsiStringToUnicodeString(UNICODE_STRING *d, const STRING *s, BOOLEAN alloc) {
-    unsigned long i; (void)alloc;
+    unsigned long i;
+    (void)alloc;
     if (!d->Buffer) return STATUS_INVALID_PARAMETER;
-    for (i = 0; i < s->Length && i * 2 < d->MaximumLength; i++) d->Buffer[i] = (WCHAR)(unsigned char)s->Buffer[i];
-    d->Length = (unsigned short)(i * 2);
+    if ((unsigned long)s->Length * 2 > d->MaximumLength) return STATUS_BUFFER_OVERFLOW;
+    for (i = 0; i < s->Length; i++) d->Buffer[i] = (WCHAR)(unsigned char)s->Buffer[i];
+    d->Length = (unsigned short)(s->Length * 2);
     return STATUS_SUCCESS;
 }
 
@@ -192,35 +217,8 @@ static __inline__ void RtlZeroMemory_(void *d, unsigned long n) {
 static __inline__ void RtlFillMemory_(void *d, unsigned long n, unsigned char v) {
     unsigned char *dp = (unsigned char *)d; while (n--) *dp++ = v;
 }
-#define RtlMoveMemory RtlMoveMemory_
 #define RtlZeroMemory RtlZeroMemory_
 #define RtlFillMemory RtlFillMemory_
-
-
-/* pointer-sized integers (normally from basetsd.h) */
-typedef unsigned long ULONG_PTR, *PULONG_PTR; typedef long LONG_PTR, *PLONG_PTR;
-typedef unsigned long DWORD_PTR, UINT_PTR; typedef long INT_PTR;
-
-
-/* LARGE_INTEGER helper inlines from ntrtl.h that the RTL sources call */
-#ifndef ARGUMENT_PRESENT
-#define ARGUMENT_PRESENT(p) ((p) != 0)
-#endif
-static __inline__ LARGE_INTEGER RtlExtendedLargeIntegerDivide(LARGE_INTEGER Dividend, ULONG Divisor, PULONG Remainder) {
-    LARGE_INTEGER q;
-    q.QuadPart = (ULONG64)Dividend.QuadPart / Divisor;
-    if (ARGUMENT_PRESENT(Remainder)) *Remainder = (ULONG)(Dividend.QuadPart % Divisor);
-    return q;
-}
-static __inline__ LARGE_INTEGER RtlExtendedMagicDivide(LARGE_INTEGER Dividend, LARGE_INTEGER MagicDivisor, CCHAR ShiftCount) {
-    LARGE_INTEGER r; (void)MagicDivisor; (void)ShiftCount;
-    r.QuadPart = Dividend.QuadPart; return r;
-}
-static __inline__ LARGE_INTEGER RtlLargeIntegerDivide(LARGE_INTEGER Dividend, LARGE_INTEGER Divisor, PLARGE_INTEGER Remainder) {
-    LARGE_INTEGER q;
-    q.QuadPart = Dividend.QuadPart / Divisor.QuadPart;
-    if (ARGUMENT_PRESENT(Remainder)) Remainder->QuadPart = Dividend.QuadPart % Divisor.QuadPart;
-    return q;
-}
-
+#define RtlCopyMemory RtlMoveMemory_
+#define RtlMoveMemory RtlMoveMemory_
 #endif /* _XPKERNEL_H_ */

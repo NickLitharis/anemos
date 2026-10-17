@@ -1,7 +1,0 @@
-SetBits.ret=0 OK
-SetBits.val=10 OK
-ClearBits.ret=10 OK
-ClearBits.val=0 OK
-Crc32(123456789)=CBF43926 OK
-SList.depth=0 OK
-XP-MODERNIZATION-V0.3: 3 MORE XP RTL FILES EXECUTED UNDER QEMU

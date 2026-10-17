@@ -7,9 +7,9 @@ TC="$HOME/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin"
 OUT="${1:-./out}"
 CFLAGS="-ffreestanding -fno-stack-protector -fno-builtin -Wno-everything"
 mkdir -p "$OUT"
-"$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c hello_rtl3.c -o "$OUT/hello_rtl3.o" $CFLAGS
+"$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c ../kernel/tests/test_cnvint.c -o "$OUT/test_cnvint.o" $CFLAGS
 # XP kernel sources come from kernel/ (single source of truth)
 ../kernel/build.sh "$OUT/xprtl" >/dev/null
 "$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c mb.c -o "$OUT/mb.o" $CFLAGS
-ld.lld -T link.ld "$OUT"/hello_rtl3.o "$OUT"/xprtl/libxprtl.a "$OUT/mb.o" -o "$OUT/xp-v05.elf"
-echo "built $OUT/xp-v05.elf"
+ld.lld -T link.ld "$OUT"/test_cnvint.o "$OUT"/xprtl/libxprtl.a "$OUT/mb.o" -o "$OUT/xp-v06.elf"
+echo "built $OUT/xp-v06.elf"
