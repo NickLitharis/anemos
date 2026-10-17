@@ -1948,4 +1948,133 @@ static __inline__ PTEB NtCurrentTeb_(void) { return &XpTeb; }
 typedef struct _RTLP_RUN { NTSTATUS Status; USHORT Error; } RTLP_RUN;
 extern const RTLP_RUN RtlpRunTable[];
 
+
+/* ---------------------------------------------------------------------------
+ * Runtime data structures, layouts copied from the tree's winnt.h.
+ * These unblock the RTL families that were failing on missing types.
+ * ------------------------------------------------------------------------- */
+
+/* RTL_CRITICAL_SECTION (winnt.h) - used by critsect/fastlock families */
+typedef struct _RTL_CRITICAL_SECTION_DEBUG {
+    unsigned short Type, CreatorBackTraceIndex;
+    struct _RTL_CRITICAL_SECTION *CriticalSection;
+    LIST_ENTRY ProcessLocksList;
+    unsigned long EntryCount, ContentionCount, Flags, CreatorBackTraceIndexHigh, SpareUSHORT;
+} RTL_CRITICAL_SECTION_DEBUG, *PRTL_CRITICAL_SECTION_DEBUG;
+
+typedef struct _RTL_CRITICAL_SECTION {
+    PRTL_CRITICAL_SECTION_DEBUG DebugInfo;
+    long LockCount, RecursionCount;
+    void *OwningThread;
+    void *LockSemaphore;
+    unsigned long SpinCount;
+} RTL_CRITICAL_SECTION, *PRTL_CRITICAL_SECTION;
+
+/* SLIST with the real 16-byte header the RTL expects */
+typedef struct _XP_SLIST_HEADER { unsigned long long Alignment; unsigned long Depth, Sequence; } XP_SLIST_HEADER;
+typedef XP_SLIST_HEADER *PSLIST_HEADER_T;
+
+/* security descriptors: opaque here; the RTL only manipulates pointers */
+typedef void *PSECURITY_DESCRIPTOR, *PACL, *PSID;
+
+/* process/loader environment, opaque pointers */
+typedef void *PPEB, *PLDR_DATA_TABLE_ENTRY;
+
+#define PAGE_SIZE 0x1000
+#define PAGE_SHIFT 12
+#define MEMORY_ALLOCATION_ALIGNMENT 16
+#define MAXIMUM_WAIT_OBJECTS 64
+#define MAXIMUM_SUSPEND_COUNT 0xFF
+
+
+/* RTL_HANDLE_TABLE, verbatim from the tree's public/sdk/inc/nturtl.h */
+typedef struct _RTL_HANDLE_TABLE_ENTRY {
+    union {
+        unsigned long Flags;
+        struct _RTL_HANDLE_TABLE_ENTRY *NextFree;
+    };
+} RTL_HANDLE_TABLE_ENTRY, *PRTL_HANDLE_TABLE_ENTRY;
+
+#define RTL_HANDLE_ALLOCATED (unsigned short)0x0001
+
+typedef struct _RTL_HANDLE_TABLE {
+    unsigned long MaximumNumberOfHandles;
+    unsigned long SizeOfHandleTableEntry;
+    unsigned long Reserved[2];
+    PRTL_HANDLE_TABLE_ENTRY FreeHandles, CommittedHandles, UnCommittedHandles, MaxReservedHandles;
+} RTL_HANDLE_TABLE, *PRTL_HANDLE_TABLE;
+
+typedef struct _MEMORY_BASIC_INFORMATION {
+    void *BaseAddress, *AllocationBase;
+    unsigned long AllocationProtect, RegionSize, State, Protect, Type;
+} MEMORY_BASIC_INFORMATION, *PMEMORY_BASIC_INFORMATION;
+
+/* memory allocation flags, from the tree winnt.h */
+#define MEM_4MB_PAGES 0x80000000
+#define MEM_COMMIT 0x1000
+#define MEM_DECOMMIT 0x4000
+#define MEM_FREE 0x10000
+#define MEM_MAPPED 0x40000
+#define MEM_PHYSICAL 0x400000
+#define MEM_PRIVATE 0x20000
+#define MEM_RELEASE 0x8000
+#define MEM_RESERVE 0x2000
+#define MEM_RESET 0x80000
+#define MEM_TOP_DOWN 0x100000
+#define MEM_WRITE_WATCH 0x200000
+
+/* page protection / section flags, from the tree winnt.h */
+#define PAGE_EXECUTE 0x10
+#define PAGE_EXECUTE_READ 0x20
+#define PAGE_EXECUTE_READWRITE 0x40
+#define PAGE_EXECUTE_WRITECOPY 0x80
+#define PAGE_GUARD 0x100
+#define PAGE_NOACCESS 0x01
+#define PAGE_NOCACHE 0x200
+#define PAGE_READONLY 0x02
+#define PAGE_READWRITE 0x04
+#define PAGE_WRITECOMBINE 0x400
+#define PAGE_WRITECOPY 0x08
+#define SEC_COMMIT 0x8000000
+#define SEC_FILE 0x800000
+#define SEC_IMAGE 0x1000000
+#define SEC_NOCACHE 0x10000000
+#define SEC_RESERVE 0x4000000
+
+
+/* Virtual memory back end for RTL handle tables. In a real kernel these are
+   Nt* syscalls; freestanding, a simple bump allocator over a static arena is
+   enough and keeps the XP logic (which is what we verify) untouched. */
+extern unsigned char XpHeapArena[];
+extern unsigned long XpHeapUsed;
+extern unsigned long XpHeapSize;
+
+static __inline__ long XpNtAllocateVirtualMemory(void *Process, void **Base, unsigned long ZeroBits,
+        unsigned long *RegionSize, unsigned long AllocType, unsigned long Protect) {
+    (void)Process;
+    unsigned long sz = (*RegionSize + 0xFFF) & ~0xFFFUL;
+    unsigned char *base;
+    (void)ZeroBits; (void)AllocType; (void)Protect;
+    if (*Base == 0) {
+        if (XpHeapUsed + sz > XpHeapSize) return (long)0xC0000017L;  /* NO_MEMORY */
+        base = XpHeapArena + XpHeapUsed;
+        XpHeapUsed += sz;
+        *Base = base;
+    } else {
+        base = (unsigned char *)*Base;
+    }
+    { unsigned long i; for (i = 0; i < sz; i++) base[i] = 0; }
+    *RegionSize = sz;
+    return 0;
+}
+
+static __inline__ long XpNtFreeVirtualMemory(void *Process, void **Base, unsigned long *RegionSize, unsigned long FreeType) {
+    (void)Process; (void)Base; (void)RegionSize; (void)FreeType;
+    return 0;   /* arena is never returned to the OS */
+}
+
+#define NtAllocateVirtualMemory XpNtAllocateVirtualMemory
+#define NtFreeVirtualMemory     XpNtFreeVirtualMemory
+#define NtCurrentProcess()      ((void *)-1)
+
 #endif /* _XPKERNEL_H_ */
