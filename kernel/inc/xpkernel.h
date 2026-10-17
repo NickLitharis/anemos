@@ -196,4 +196,31 @@ static __inline__ void RtlFillMemory_(void *d, unsigned long n, unsigned char v)
 #define RtlZeroMemory RtlZeroMemory_
 #define RtlFillMemory RtlFillMemory_
 
+
+/* pointer-sized integers (normally from basetsd.h) */
+typedef unsigned long ULONG_PTR, *PULONG_PTR; typedef long LONG_PTR, *PLONG_PTR;
+typedef unsigned long DWORD_PTR, UINT_PTR; typedef long INT_PTR;
+
+
+/* LARGE_INTEGER helper inlines from ntrtl.h that the RTL sources call */
+#ifndef ARGUMENT_PRESENT
+#define ARGUMENT_PRESENT(p) ((p) != 0)
+#endif
+static __inline__ LARGE_INTEGER RtlExtendedLargeIntegerDivide(LARGE_INTEGER Dividend, ULONG Divisor, PULONG Remainder) {
+    LARGE_INTEGER q;
+    q.QuadPart = (ULONG64)Dividend.QuadPart / Divisor;
+    if (ARGUMENT_PRESENT(Remainder)) *Remainder = (ULONG)(Dividend.QuadPart % Divisor);
+    return q;
+}
+static __inline__ LARGE_INTEGER RtlExtendedMagicDivide(LARGE_INTEGER Dividend, LARGE_INTEGER MagicDivisor, CCHAR ShiftCount) {
+    LARGE_INTEGER r; (void)MagicDivisor; (void)ShiftCount;
+    r.QuadPart = Dividend.QuadPart; return r;
+}
+static __inline__ LARGE_INTEGER RtlLargeIntegerDivide(LARGE_INTEGER Dividend, LARGE_INTEGER Divisor, PLARGE_INTEGER Remainder) {
+    LARGE_INTEGER q;
+    q.QuadPart = Dividend.QuadPart / Divisor.QuadPart;
+    if (ARGUMENT_PRESENT(Remainder)) Remainder->QuadPart = Dividend.QuadPart % Divisor.QuadPart;
+    return q;
+}
+
 #endif /* _XPKERNEL_H_ */
