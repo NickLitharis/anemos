@@ -401,4 +401,29 @@ struct _RTL_SPLAY_LINKS *RtlSubtreeSuccessor(struct _RTL_SPLAY_LINKS *);
 struct _RTL_SPLAY_LINKS *RtlRealPredecessor(struct _RTL_SPLAY_LINKS *);
 struct _RTL_SPLAY_LINKS *RtlRealSuccessor(struct _RTL_SPLAY_LINKS *);
 
+
+/* --- in-guest tracing ---------------------------------------------------
+ * DbgPrint/DbgPrintEx write to the QEMU debug console (port 0xE9). XP sources
+ * and the test harness can then be observed without a debugger, which is what
+ * the prefix.c investigation lacked.
+ */
+static __inline__ void xp_dbg_putc(char c) { __asm__ volatile("outb %0,%1" :: "a"((unsigned char)c), "Nd"((unsigned short)0xE9)); }
+static __inline__ void xp_dbg_hex(unsigned long v) {
+    const char *d = "0123456789ABCDEF"; int i, st = 0;
+    for (i = 28; i >= 0; i -= 4) { unsigned long n = (v >> i) & 0xF;
+        if (n || st || i == 0) { st = 1; xp_dbg_putc(d[n]); } }
+}
+static __inline__ unsigned long DbgPrint(const char *fmt, ...) {
+    va_list ap; const char *p = fmt;
+    va_start(ap, fmt);
+    while (*p) {
+        if (*p == '%' && p[1] == 'x') { xp_dbg_hex((unsigned long)va_arg(ap, unsigned)); p += 2; }
+        else if (*p == '%' && p[1] == 's') { const char *s2 = va_arg(ap, const char *); while (*s2) xp_dbg_putc(*s2++); p += 2; }
+        else { xp_dbg_putc(*p++); }
+    }
+    va_end(ap);
+    return 0;
+}
+#define DbgPrintEx(a, b, ...) DbgPrint(__VA_ARGS__)
+
 #endif /* _XPKERNEL_H_ */
