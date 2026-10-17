@@ -89,3 +89,38 @@ for that test vector, so a subtly wrong bit in XP's table or loop shows up.
   macros/imports the sources assume. A freestanding build must supply them.
 - **Doc-comment layout.** XP puts the parameter list before its `/*++ … --*/`
   block; naive preprocessing that strips comments can swallow a function header.
+
+---
+
+# v0.4 — five XP kernel source files verified (adds guid.c)
+
+```
+$ cd boot && ./build.sh ./out
+built ./out/xp-v04.elf
+$ qemu-system-i386 -kernel ./out/xp-v04.elf -display none -debugcon file:./out/con4.txt
+$ cat ./out/con4.txt
+SetBits.ret=0 OK
+SetBits.val=10 OK
+ClearBits.ret=10 OK
+ClearBits.val=0 OK
+Crc32(123456789)=CBF43926 OK
+SList.depth=0 OK
+GUIDFromString.status=0 OK
+GUID.Data1=12345678 OK
+XP-MODERNIZATION-V0.4: 5 XP SP1 KERNEL SOURCE FILES EXECUTED AND VERIFIED
+```
+
+`base/ntos/rtl/guid.c` is new here: `RtlGUIDFromString` parses
+`{12345678-1234-5678-9abc-def012345678}` through XP's own `ScanHexFormat`
+and yields `Data1 = 0x12345678` — a real state machine, not a constant.
+
+## Debugging notes worth keeping
+
+- **Wide literals are unsafe on `i386-none-elf`.** `L"…"` is `int`-sized here, so
+  assigning it to a `WCHAR` (`unsigned short`) array silently stored zeros. Build
+  wide buffers by code point instead.
+- **`GuidFormat` must include the braces.** The parser treats every non-`%`
+  character as a literal to match, so a format without `{`/`}` rejects the
+  standard GUID text with `STATUS_INVALID_PARAMETER` (`0xC000000D`).
+- **These failure modes are exactly the kind that produce silently-wrong
+  results.** Both were caught only because the image asserts on values.

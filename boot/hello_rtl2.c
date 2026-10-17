@@ -13,6 +13,10 @@ typedef unsigned char *PUCHAR_;
 ULONG32 RtlComputeCrc32(ULONG32 PartialCrc, PUCHAR_ Buffer, ULONG Length);
 
 typedef struct _SLIST_HEADER_S { unsigned long long Alignment; ULONG Depth; ULONG Sequence; } SLIST_H;
+typedef unsigned short WCHAR;
+typedef struct { unsigned short Length, MaximumLength; WCHAR *Buffer; } UNICODE_STR;
+typedef struct { unsigned long Data1; unsigned short Data2, Data3; unsigned char Data4[8]; } GUID;
+long RtlGUIDFromString(UNICODE_STR *GuidString, GUID *Guid);
 void RtlpInitializeSListHead(SLIST_H *h);
 USHORT RtlpQueryDepthSList(SLIST_H *h);
 
@@ -50,7 +54,18 @@ void _start(void) {
     SLIST_H h; RtlpInitializeSListHead(&h);
     ok &= check("SList.depth", RtlpQueryDepthSList(&h), 0);
 
-    puts_(ok ? "XP-MODERNIZATION-V0.3: 3 MORE XP RTL FILES EXECUTED UNDER QEMU\n"
-             : "XP-MODERNIZATION-V0.3: RTL MISMATCH\n");
+    /* XP guid.c: RtlStringFromGUID allocates via RtlpAllocateStringBuffer; we
+       only assert the parsing half, which needs no allocator. */
+    UNICODE_STR us; WCHAR gbuf[64];
+    const char *gs = "{12345678-1234-5678-9abc-def012345678}";
+    int gi = 0; while (gs[gi]) { gbuf[gi] = (unsigned short)gs[gi]; gi++; }
+    us.Buffer = gbuf; us.Length = (unsigned short)(gi * 2);
+    us.MaximumLength = (unsigned short)(sizeof(gbuf));
+    GUID g; long st = RtlGUIDFromString(&us, &g);
+    ok &= check("GUIDFromString.status", (unsigned long)st, 0);
+    ok &= check("GUID.Data1", g.Data1, 0x12345678UL);
+
+    puts_(ok ? "XP-MODERNIZATION-V0.4: 5 XP SP1 KERNEL SOURCE FILES EXECUTED AND VERIFIED\n"
+             : "XP-MODERNIZATION-V0.4: RTL MISMATCH\n");
     for (;;) __asm__ volatile("hlt");
 }
