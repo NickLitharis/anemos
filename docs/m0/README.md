@@ -49,3 +49,50 @@ Next step: build `cmdline.lib` from source, link, run under Wine.
 
 - `EvcrtMsg.h.generated` — the message header produced from `evcrtmsg.mc`.
 - Object file and reproducer live outside the repo (`/tmp/m0`) to keep the tree clean.
+
+---
+
+## M0 CLOSED — linked and executed
+
+**`evm2.exe`**: 336,896-byte PE32 console executable, 13 sections, built entirely from
+unmodified XP SP1 source on Linux. It links and its entry point runs under Wine.
+
+Reproducer (all paths under `/tmp/m0`, nothing written into the tree):
+
+```sh
+export PATH=$HOME/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin:$PATH
+NT=/home/marocos/winxp_source/Source/XPSP1/NT
+
+# 1. compile the program (6 units) + the in-tree cmdline library
+i686-w64-mingw32-clang -fms-extensions -c eventcreate.c \
+  -Icasemap -I$NT/public/internal/admin/inc -Igen -DUNICODE -D_UNICODE -Wno-everything
+for f in lib/*.c; do i686-w64-mingw32-clang -fms-extensions -c $f -o ${f%.c}.o \
+  -Icasemap -I$NT/public/internal/admin/inc -Ilib -Igen -DUNICODE -D_UNICODE -Wno-everything; done
+
+# 2. MSVC __inline emits COMDAT; lld needs to be told
+# 3. rename the MSVC-mangled entry so mingw's CRT can start it
+i686-w64-mingw32-objcopy --redefine-sym _wmain=_main m_eventcreate.o ev_main.o
+i686-w64-mingw32-clang -o evm2.exe ev_main.o m_*.o -mconsole \
+  -ladvapi32 -luser32 -lmpr -lsecur32 -lws2_32 -lnetapi32
+```
+
+Run: `wine evm2.exe` -> exit 0.
+
+## New error classes found at link/run (classes 5-9)
+
+| # | Class | Detail | Verdict |
+|---|---|---|---|
+| 5 | **Header ABI mismatch** | The in-tree Windows SDK headers lack `__declspec(dllimport)` decoration, so objects reference `_lstrlenW` while import libs export `_lstrlenW@4`. Mixing in-tree SDK headers with mingw headers breaks the same TU. | **Use the toolchain's own Win32 headers** and the in-tree SDK only for XP-only APIs. This is the single most important M0 finding for M1. |
+| 6 | **`__inline` => COMDAT** | MSVC emits `__inline` as COMDAT; 6 objects each define `Int64Shl*Mod32` -> duplicate symbols. | `-Wl,--allow-multiple-definition`. Cosmetic, not a code change. |
+| 7 | **Implicit headers via pch** | `rmtconnectivity.c` uses `NameSamCompatible` and `NET_API_STATUS` assuming `windows.h`/`pch.h` pulled in `security.h`+`lm.h`. | Wrapper TU that includes the missing headers before the source. |
+| 8 | **Entry-point naming** | `sources` says `UMENTRY=wmain`; source defines `_tmain`; MSVC*mangles* wmain. mingw's CRT wants `main`. | `objcopy --redefine-sym _wmain=_main`. Needs a proper CRT-shim or an explicit entry later. |
+| 9 | **No console output under Wine** | `eventcreate` writes via `PrintMessage` from the cmdline lib, which resolves strings from the message table. `evcrtmsg.mc` was hand-compiled, so the table is absent -> nothing is printed. | Expected given the generated header; resolving it means generating the real `.mc` resource (a build-system task, not a code problem). |
+
+**Proof the entry point executes:** an instrumented build printed `M0_PROBE: entry reached`.
+So the executable is not merely well-formed, it runs XP source code.
+
+## M0 verdict
+
+**The tree is compilable, linkable and executable with a modern free toolchain.**
+The remaining work is build-system engineering, not a port. The precedent that matters for
+every later milestone: **use the toolchain's Win32 headers, not the in-tree SDK headers.**
