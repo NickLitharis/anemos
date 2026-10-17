@@ -69,3 +69,45 @@ instrumenting a *nested* body — the next concrete step.
 ## Decision (unchanged)
 
 prefix.c stays linked and unverified. Verified set remains 8 files.
+
+## ROOT CAUSE LOCATED: the hang is in `RtlSplay`
+
+Bisected with DbgPrint in a scratch copy. For the second insert ("ABC" into a
+table holding "AB"):
+
+```
+TOP node=2740            <- tree walk entered, node valid
+CMPRET=0                 <- CompareUnicodeStrings returns IsLessThan
+RIGHT child=0            <- right child is NULL, so the insert-and-break path
+BEFORE-SPLAY node=2740   <- reached the post-loop splay
+<hang>
+```
+
+So `RtlInsertUnicodePrefix` is correct up to its final statement. It breaks out
+of the descent loop, then calls:
+
+```c
+Node = CONTAINING_RECORD(RtlSplay(&Node->Links), UNICODE_PREFIX_TABLE_ENTRY, Links);
+```
+
+**`RtlSplay` (base/ntos/rtl/splay.c) does not terminate** on the tree built here.
+
+### Why this is likely my bug, not XP's
+
+`splay.c` is XP kernel code and `RtlSplay` walks parent pointers assuming a
+well-formed splay tree. The node was inserted through `RtlInsertAsRightChild`,
+which sets `Child->Parent = Parent`. A malformed `Parent` chain is therefore the
+suspect — and the most likely source is the `UNICODE_PREFIX_TABLE_ENTRY`
+`Links` member: my test's entry type, or the `RtlRightChild`/`RtlParent` macros
+resolving to a different offset than splay.c expects.
+
+Verified offsets (in-guest): entry = 28 bytes, `NameLength@2`, `Next@4`,
+`CaseMatch@8`, `Links@12`, `Prefix@24`. Tree's `ntrtl.h` agrees.
+
+### Next concrete step
+
+Instrument `RtlSplay` itself (it is short) with a bounded iteration counter and
+print `Links->Parent`, `LeftChild`, `RightChild` each step. One run will show
+whether the parent chain cycles or terminates at a bogus node.
+
+**prefix.c remains unverified.** Everything else in v0.1-v0.8 stands.

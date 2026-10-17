@@ -38,8 +38,10 @@ void _start(void) {
 
     RtlInitializeUnicodePrefix(&pt);
 
+    puts_("e1="); puthex((unsigned long)&e1 & 0xFFFF); puts_(" e2="); puthex((unsigned long)&e2 & 0xFFFF); puts_("\n");
     puts_("about AB\n");
     ok &= check("insert AB", RtlInsertUnicodePrefix(&pt, &p1, &e1), 1);
+    puts_("e1="); puthex((unsigned long)&e1 & 0xFFFF); puts_(" e2="); puthex((unsigned long)&e2 & 0xFFFF); puts_("\n");
     puts_("about AB\n");
     puts_("about ABC\n");
     ok &= check("insert ABC", RtlInsertUnicodePrefix(&pt, &p2, &e2), 1);
