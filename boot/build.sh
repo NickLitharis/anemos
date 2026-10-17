@@ -1,15 +1,14 @@
 #!/bin/sh
-# v0.3: bootable i386 image whose payload is REAL XP SP1 kernel source:
-#   base/ntos/rtl/byteswap.c, intbits.c, checksum.c, slistfunc.c
-# Each routine's behaviour is asserted inside the image.
+# Builds a bootable image containing XP kernel source + a test harness.
+# Usage: ./build.sh <outdir> [testfile]
 set -e
 TC="$HOME/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin"
 OUT="${1:-./out}"
+TEST="${2:-../kernel/tests/test_bitmap.c}"
 CFLAGS="-ffreestanding -fno-stack-protector -fno-builtin -Wno-everything"
 mkdir -p "$OUT"
-"$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c ../kernel/tests/test_cnvint.c -o "$OUT/test_cnvint.o" $CFLAGS
-# XP kernel sources come from kernel/ (single source of truth)
-../kernel/build.sh "$OUT/xprtl" >/dev/null
+"$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c "$TEST" -o "$OUT/test.o" $CFLAGS
 "$TC"/i686-w64-mingw32-clang --target=i386-none-elf -c mb.c -o "$OUT/mb.o" $CFLAGS
-ld.lld -T link.ld "$OUT"/test_cnvint.o "$OUT"/xprtl/libxprtl.a "$OUT/mb.o" -o "$OUT/xp-v06.elf"
-echo "built $OUT/xp-v06.elf"
+../kernel/build.sh "$OUT/xprtl" >/dev/null
+ld.lld -T link.ld --allow-multiple-definition "$OUT/test.o" "$OUT/xprtl/libxprtl.a" "$OUT/mb.o" -o "$OUT/xp-test.elf"
+echo "built $OUT/xp-test.elf"

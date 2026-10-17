@@ -1,0 +1,8 @@
+TestBit(0)=1 OK
+TestBit(7)=1 OK
+TestBit(8)=0 OK
+SetCount=8 OK
+afterClear(0)=0 OK
+afterClear(4)=1 OK
+SetCount2=4 OK
+XP-MODERNIZATION-V0.7: XP bitmap.c EXECUTED AND VERIFIED
