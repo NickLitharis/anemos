@@ -50,3 +50,42 @@ NT internal vocabulary.
 | `mb.c` | multiboot v1 header |
 | `link.ld` | links at 0x100000, `.multiboot` first |
 | `build.sh` | builds the image with the same llvm-mingw that builds XPSP1 |
+
+---
+
+# v0.3 — four XP kernel source files verified under QEMU
+
+```
+$ cd boot && ./build.sh ./out
+built ./out/xp-v03.elf
+$ qemu-system-i386 -kernel ./out/xp-v03.elf -display none -debugcon file:./out/con3.txt
+$ cat ./out/con3.txt
+SetBits.ret=0 OK
+SetBits.val=10 OK
+ClearBits.ret=10 OK
+ClearBits.val=0 OK
+Crc32(123456789)=CBF43926 OK
+SList.depth=0 OK
+XP-MODERNIZATION-V0.3: 3 MORE XP RTL FILES EXECUTED UNDER QEMU
+```
+
+XP source files now executing (bodies unchanged from the tree):
+
+| File | Routines exercised | Assertion |
+|---|---|---|
+| `base/ntos/rtl/byteswap.c` | RtlUshort/Ulong/UlonglongByteSwap | 3 exact-value checks |
+| `base/ntos/rtl/intbits.c` | RtlInterlockedSetBits/ClearBits | return-previous-value + resulting flags |
+| `base/ntos/rtl/checksum.c` | RtlComputeCrc32 | standard CRC-32 of "123456789" = 0xCBF43926 |
+| `base/ntos/rtl/slistfunc.c` | RtlpInitializeSListHead/QueryDepthSList | depth reads back 0 |
+
+The CRC-32 check is the strongest one: `0xCBF43926` is the published check value
+for that test vector, so a subtly wrong bit in XP's table or loop shows up.
+
+## Needs the harness must meet (learned here)
+
+- **`FASTCALL` in prototypes.** These routines are fastcall; cdecl callers read
+  garbage. Any generated header must carry the calling convention.
+- **`RTL_PAGED_CODE()` and `InterlockedCompareExchange`** are kernel-runtime
+  macros/imports the sources assume. A freestanding build must supply them.
+- **Doc-comment layout.** XP puts the parameter list before its `/*++ … --*/`
+  block; naive preprocessing that strips comments can swallow a function header.
