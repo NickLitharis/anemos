@@ -65,6 +65,7 @@ CLASSES = {
     "C12_cxx": "C++ target: needs the C++ stdlib and MSVC compatibility mode",
     "C13_nt_native": "native NT headers (nt.h etc.) included by user-mode pch; needs a DDK type shim (M1-class)",
     "C16_typedef_clash": "tree header redefines a type the toolchain already provides",
+    "C19_toolchain_shadow": "in-tree SDK header shadowed a toolchain header of the same name",
 }
 
 
@@ -327,6 +328,18 @@ TOOLCHAIN_OWNED = {"windows", "winbase", "winnt", "windef", "winuser", "wingdi",
                    "sys/stat", "assert", "complex", "search", "stdint", "inttypes"}
 
 
+_TOOLCHAIN_HDRS: set[str] | None = None
+
+
+def toolchain_headers() -> set[str]:
+    """Basenames provided by the toolchain; these must never come from the tree."""
+    global _TOOLCHAIN_HDRS
+    if _TOOLCHAIN_HDRS is None:
+        d = MINGW.parent / "i686-w64-mingw32" / "include"
+        _TOOLCHAIN_HDRS = {p.name.lower() for p in d.rglob("*.h")} if d.is_dir() else set()
+    return _TOOLCHAIN_HDRS
+
+
 def prepare_any(src_dir: Path, work: Path) -> dict:
     """Apply C1 (case) and C2 (.mc) repairs for an arbitrary source dir."""
     info = {"classes": set()}
@@ -362,6 +375,17 @@ def prepare_any(src_dir: Path, work: Path) -> dict:
                 continue
             if Path(want).stem.lower() in NT_NATIVE:
                 continue      # served by the ntstub, never by the tree
+            if want.lower() in toolchain_headers():
+                if want != want.lower():
+                    alias = casemap / want
+                    if not alias.exists():
+                        alias.write_text(f'#pragma once\n#include <{want.lower()}>\n')
+                        info["classes"].add("C19_toolchain_shadow")
+                continue
+            if want.lower() in toolchain_headers() and Path(want).stem.lower() not in (
+                    "shlwapi", "shlobj", "shlguid", "winspool", "winreg", "mprapi"):
+                # the toolchain's own copy is authoritative
+                continue
             if (casemap / want).exists():
                 continue
             hits = global_map.get(want.lower())
@@ -855,18 +879,28 @@ def build(rel: str, verbose: bool = False) -> dict:
     # export stdcall-decorated names (_Foo@N). Provide the cdecl spellings as C
     # functions that forward to the decorated imports.
     shim_src = work / "nt_shim.c"
+    # C18: the tree calls these with no stdcall decoration; provide plain cdecl
+    # definitions that reach ntdll via GetProcAddress once at load time.
     shim_src.write_text(
         "#include <windows.h>\n"
-        "/* C18: provide cdecl spellings for Rtl* the XP headers declare without WINAPI */\n"
-        "ULONG __stdcall RtlNtStatusToDosError_imp(NTSTATUS);\n"
-        "ULONG RtlNtStatusToDosError(NTSTATUS s) {\n"
-        "  return ((ULONG (__stdcall *)(NTSTATUS))GetProcAddress(GetModuleHandleA(\"ntdll.dll\"),"
-        " \"RtlNtStatusToDosError\"))(s);\n"
+        "/* C18 bridge: cdecl spellings used by the XP headers. */\n"
+        "typedef ULONG (__stdcall *PFN_NTSTATUS2DOS)(NTSTATUS);\n"
+        "typedef NTSTATUS (__stdcall *PFN_ADJPRIV)(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);\n"
+        "static PFN_NTSTATUS2DOS pNt2Dos;\n"
+        "static PFN_ADJPRIV pAdjPriv;\n"
+        "static void xp_init_nt( void ) {\n"
+        "  HMODULE n = LoadLibraryA(\"ntdll.dll\");\n"
+        "  if ( !n ) return;\n"
+        "  pNt2Dos = (PFN_NTSTATUS2DOS)GetProcAddress( n, \"RtlNtStatusToDosError\" );\n"
+        "  pAdjPriv = (PFN_ADJPRIV)GetProcAddress( n, \"RtlAdjustPrivilege\" );\n"
         "}\n"
-        "NTSTATUS __stdcall RtlAdjustPrivilege_imp(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN);\n"
-        "NTSTATUS RtlAdjustPrivilege(ULONG p, BOOLEAN e, BOOLEAN c, PBOOLEAN r) {\n"
-        "  return ((NTSTATUS (__stdcall *)(ULONG, BOOLEAN, BOOLEAN, PBOOLEAN))"
-        "GetProcAddress(GetModuleHandleA(\"ntdll.dll\"), \"RtlAdjustPrivilege\"))(p,e,c,r);\n"
+        "ULONG RtlNtStatusToDosError( NTSTATUS s ) {\n"
+        "  if ( !pNt2Dos ) xp_init_nt();\n"
+        "  return pNt2Dos ? pNt2Dos( s ) : 87UL;\n"
+        "}\n"
+        "NTSTATUS RtlAdjustPrivilege( ULONG a, BOOLEAN b, BOOLEAN c, PBOOLEAN d ) {\n"
+        "  if ( !pAdjPriv ) xp_init_nt();\n"
+        "  return pAdjPriv ? pAdjPriv( a, b, c, d ) : (NTSTATUS)0xC0000001L;\n"
         "}\n")
     shim_obj = work / "nt_shim.o"
     if subprocess.run([str(CC), "-c", str(shim_src), "-o", str(shim_obj),
@@ -888,7 +922,8 @@ def build(rel: str, verbose: bool = False) -> dict:
 
     # C7: mingw's CRT wants `main`; MS mangles `_wmain`. Rename only the object
     # that actually defines the entry point.
-    if proc.returncode != 0 and "undefined symbol: _WinMain@16" in proc.stderr:
+    if (proc.returncode != 0 and "undefined symbol: _WinMain@16" in proc.stderr
+            and t.subsystem not in ("CONSOLE",)):
         classes.add("C7_entry")
         # GUI target: MSVC compiled main/wmain into WinMain@16
         for o in objs:
@@ -904,7 +939,9 @@ def build(rel: str, verbose: bool = False) -> dict:
                         proc = subprocess.run(link, capture_output=True, text=True)
                     break
 
-    if proc.returncode != 0 and "undefined symbol: _wmainCRTStartup" in proc.stderr:
+    if proc.returncode != 0 and (
+            "undefined symbol: _wmainCRTStartup" in proc.stderr
+            or ("undefined symbol: _WinMain@16" in proc.stderr and t.subsystem in ("CONSOLE",))):
         classes.add("C7_entry")
         for o in objs:
             defs = subprocess.run([str(OBJCOPY), "-O", "binary", "/dev/null", "/dev/null"],
