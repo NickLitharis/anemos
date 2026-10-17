@@ -98,4 +98,102 @@ static __inline__ long InterlockedDecrement(volatile long *d) {
 #define UNICODE_NULL        ((WCHAR)0)
 #define UNICODE_STRING_MAX_CHARS 32767
 
+
+/* --- generic-function types used by the RTL tables --------------------- */
+typedef unsigned char CCHAR_T;
+typedef BOOLEAN (*PRTL_GENERIC_COMPARE_ROUTINE)(void *Table, PVOID First, PVOID Second);
+typedef PVOID   (*PRTL_GENERIC_ALLOCATE_ROUTINE)(void *Table, ULONG ByteSize);
+typedef void    (*PRTL_GENERIC_FREE_ROUTINE)(void *Table, PVOID Buffer);
+typedef void    *RTL_GENERIC_TABLE_PLACEHOLDER;
+
+typedef struct _RTL_SPLAY_LINKS { struct _RTL_SPLAY_LINKS *Parent, *LeftChild, *RightChild; } RTL_SPLAY_LINKS;
+typedef struct { struct _RTL_SPLAY_LINKS *Root; } RTL_SPLAY_HEADER_PLACEHOLDER;
+
+typedef struct _RTL_BITMAP { ULONG SizeOfBitMap; PULONG Buffer; } RTL_BITMAP, *PRTL_BITMAP;
+
+typedef struct _PREFIX_TABLE_ENTRY {
+    struct _PREFIX_TABLE_ENTRY *NextPrefixTree;
+    struct { unsigned short Length, MaximumLength; unsigned short *Buffer; } Prefix;
+} PREFIX_TABLE_ENTRY, *PPREFIX_TABLE_ENTRY;
+typedef struct _PREFIX_TABLE { PREFIX_TABLE_ENTRY *NextPrefixTree; } PREFIX_TABLE, *PPREFIX_TABLE;
+
+#define try      /* SEH is unavailable freestanding */
+#define except(a) if (0)
+#define finally  if (1)
+#define leave    break
+
+
+typedef enum _RTL_GENERIC_COMPARE_RESULTS {
+    GenericLessThan, GenericGreaterThan, GenericEqual
+} RTL_GENERIC_COMPARE_RESULTS;
+typedef RTL_GENERIC_COMPARE_RESULTS (NTAPI *RTL_COMPARE_ARRAY_ELEMENT_FUNCTION)(PVOID, const void *, const void *, SIZE_T);
+typedef int (__cdecl *RTL_COMPARE_ARRAY_ELEMENT)(const void *, const void *, SIZE_T);
+typedef void (*RTL_COPY_ARRAY_ELEMENT_FUNCTION)(PVOID, void *, const void *, SIZE_T);
+
+
+/* --- NLS hooks string.c expects from the kernel ------------------------ */
+/* With NlsMbCodePageTag FALSE the ACP is single-byte, and RtlUpperChar /
+   RtlUpcaseUnicodeChar take their ASCII fast path, so the tables below are
+   never dereferenced. The identity table keeps the symbols resolvable. */
+static unsigned short NlsAnsiToUnicodeDataTable[256];
+static unsigned short *NlsAnsiToUnicodeData = NlsAnsiToUnicodeDataTable;
+static BOOLEAN NlsMbCodePageTag = 0;
+static char NlsUnicodeToAnsiDataTable[256];
+static char *NlsUnicodeToAnsiData = NlsUnicodeToAnsiDataTable;
+static unsigned short NlsLeadByteInfoTable[256];
+static unsigned short *const NlsLeadByteInfo = NlsLeadByteInfoTable;
+
+static __inline__ unsigned long wcslen_(const unsigned short *s) {
+    unsigned long n = 0; while (s[n]) n++; return n;
+}
+#define wcslen wcslen_
+
+
+static unsigned short NlsUnicodeToMbAnsiDataTable[256];
+static unsigned short *NlsUnicodeToMbAnsiData = NlsUnicodeToMbAnsiDataTable;
+/* ASCII upcase: the path used when NlsMbCodePageTag is FALSE */
+#define NLS_UPCASE(c) (((c) >= 'a' && (c) <= 'z') ? (unsigned short)((c) - 0x20) : (unsigned short)(c))
+#ifndef HIBYTE
+#define HIBYTE(w) ((unsigned char)(((unsigned short)(w) >> 8) & 0xff))
+#endif
+#ifndef LOBYTE
+#define LOBYTE(w) ((unsigned char)((w) & 0xff))
+#endif
+#ifndef MAKELONG
+#define MAKELONG(a, b) ((unsigned long)(((unsigned short)(a)) | ((unsigned long)((unsigned short)(b))) << 16))
+#endif
+
+
+/* ANSI string helpers used by RtlCreateUnicodeStringFromAsciiz */
+static __inline__ unsigned long strlen_(const char *s) { unsigned long n = 0; while (s[n]) n++; return n; }
+#define strlen strlen_
+static __inline__ void RtlInitAnsiString(STRING *d, const char *s) {
+    unsigned long n = strlen_(s);
+    d->Length = (unsigned short)n; d->MaximumLength = (unsigned short)(n + 1); d->Buffer = (char *)s;
+}
+static __inline__ NTSTATUS RtlAnsiStringToUnicodeString(UNICODE_STRING *d, const STRING *s, BOOLEAN alloc) {
+    unsigned long i; (void)alloc;
+    if (!d->Buffer) return STATUS_INVALID_PARAMETER;
+    for (i = 0; i < s->Length && i * 2 < d->MaximumLength; i++) d->Buffer[i] = (WCHAR)(unsigned char)s->Buffer[i];
+    d->Length = (unsigned short)(i * 2);
+    return STATUS_SUCCESS;
+}
+
+
+/* memory primitives the RTL calls; the real ones live in the kernel's own
+   RtlMoveMemory. Inline equivalents keep this a pure type+helper header. */
+static __inline__ void RtlMoveMemory_(void *d, const void *s, unsigned long n) {
+    unsigned char *dp = (unsigned char *)d; const unsigned char *sp = (const unsigned char *)s;
+    while (n--) *dp++ = *sp++;
+}
+static __inline__ void RtlZeroMemory_(void *d, unsigned long n) {
+    unsigned char *dp = (unsigned char *)d; while (n--) *dp++ = 0;
+}
+static __inline__ void RtlFillMemory_(void *d, unsigned long n, unsigned char v) {
+    unsigned char *dp = (unsigned char *)d; while (n--) *dp++ = v;
+}
+#define RtlMoveMemory RtlMoveMemory_
+#define RtlZeroMemory RtlZeroMemory_
+#define RtlFillMemory RtlFillMemory_
+
 #endif /* _XPKERNEL_H_ */

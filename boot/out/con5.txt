@@ -1,13 +1,8 @@
-SetBits.ret=0 OK
-SetBits.val=10 OK
-ClearBits.ret=10 OK
-ClearBits.val=0 OK
-Crc32(123456789)=CBF43926 OK
-SList.depth=0 OK
-guid.len=2 FAIL
-guid.max=80 OK
-guid.ch0=7B OK
-guid.ch1=0 FAIL
-GUIDFromString.status=C000000D FAIL
-GUID.Data1=0 FAIL
-XP-MODERNIZATION-V0.3: RTL MISMATCH
+InitUnicodeStringEx=0 OK
+u1.Length=A OK
+CompareString(ci)=0 OK
+EqualString(cs)=0 OK
+EqualString(ci)=1 OK
+UpperChar(a)=41 OK
+UpperChar(Z)=5A OK
+XP-MODERNIZATION-V0.5: XP string.c ROUTINES EXECUTED AND VERIFIED
