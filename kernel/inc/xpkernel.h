@@ -2077,4 +2077,25 @@ static __inline__ long XpNtFreeVirtualMemory(void *Process, void **Base, unsigne
 #define NtFreeVirtualMemory     XpNtFreeVirtualMemory
 #define NtCurrentProcess()      ((void *)-1)
 
+
+/* GENERATE_NAME_CONTEXT, verbatim field list from the tree's ntrtl.h */
+typedef struct _GENERATE_NAME_CONTEXT {
+    USHORT Checksum;
+    BOOLEAN ChecksumInserted;
+    UCHAR NameLength;
+    WCHAR NameBuffer[8];
+    ULONG ExtensionLength;
+    WCHAR ExtensionBuffer[4];
+    ULONG LastIndexValue;
+} GENERATE_NAME_CONTEXT, *PGENERATE_NAME_CONTEXT;
+
+/* SLIST_HEADER as the real union from the tree's winnt.h */
+typedef struct _XP_SLIST_ENTRY { struct _XP_SLIST_ENTRY *Next; } XP_SLIST_ENTRY, *PXP_SLIST_ENTRY;
+typedef union _SLIST_HEADER_REAL {
+    unsigned long long Alignment;
+    struct { XP_SLIST_ENTRY Next; unsigned short Depth; unsigned short Sequence; };
+} SLIST_HEADER_REAL;
+typedef SLIST_HEADER_REAL *PSLIST_HEADER;
+typedef SLIST_HEADER_REAL SLIST_HEADER;
+
 #endif /* _XPKERNEL_H_ */
