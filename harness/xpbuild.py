@@ -91,9 +91,32 @@ class Target:
 
 def resolve_source(directory: Path, name: str) -> Path | None:
     """Resolve a `sources` entry to a real file on a case-sensitive filesystem."""
-    direct = directory / name
+    norm = name.replace("\\", "/")
+    direct = directory / norm
     if direct.is_file():
         return direct
+    # relative parent paths (..\addr.c) and case differences along the way
+    if "/" in norm:
+        parts = [p for p in norm.split("/") if p not in ("", ".")]
+        cur = directory
+        for part in parts:
+            if part == "..":
+                cur = cur.parent
+                continue
+            nxt = cur / part
+            if nxt.exists():
+                cur = nxt
+                continue
+            hit = None
+            if cur.is_dir():
+                for cand in cur.iterdir():
+                    if cand.name.lower() == part.lower():
+                        hit = cand
+                        break
+            if hit is None:
+                return None
+            cur = hit
+        return cur if cur.is_file() else None
     stem = re.sub(r"\.[^.]+$", "", name).lower()
     code = [p for p in directory.iterdir() if p.suffix.lower() in (".c", ".cpp", ".cxx")]
     for p in code:
@@ -371,10 +394,25 @@ def prepare_any(src_dir: Path, work: Path) -> dict:
             continue
         for m in re.finditer(r'#include\s+["<]([^">]+)[">]', text):
             want = Path(m.group(1).replace("\\", "/")).name
+            # uppercased toolchain headers need an alias, not a skip
             if Path(want).stem.lower() in TOOLCHAIN_OWNED:
+                if want != want.lower():
+                    low = want.lower()
+                    alias = casemap / want
+                    if not alias.exists():
+                        alias.write_text(f'#pragma once\n#include <{low}>\n')
+                        info["classes"].add("C19_toolchain_shadow")
                 continue
             if Path(want).stem.lower() in NT_NATIVE:
                 continue      # served by the ntstub, never by the tree
+            if want.lower() in toolchain_headers() or want.isupper():
+                low = want.lower() if want.lower() in toolchain_headers() else want.lower()
+                if want != low:
+                    alias = casemap / want
+                    if not alias.exists():
+                        alias.write_text(f'#pragma once\n#include <{low}>\n')
+                        info["classes"].add("C19_toolchain_shadow")
+                continue
             if want.lower() in toolchain_headers():
                 if want != want.lower():
                     alias = casemap / want
@@ -655,8 +693,12 @@ def prepare(target: Target, work: Path) -> tuple[list[Path], dict]:
                 extra_dirs.append(hit.parent)
     extra_dirs = extra_dirs[:24]
 
+    ddk_dirs = [TREE / "public/ddk/inc", TREE / "public/ddk/inc/wdm",
+                TREE / "public/halkit/inc", TREE / "public/ifskit/inc",
+                TREE / "public/ntos/inc", TREE / "published/genxddk"]
+    ddk_dirs = [d for d in ddk_dirs if d.is_dir()]
     return [inc, casemap, gen, ntstub, src_dir,
-            TREE / "public/internal/admin/inc"] + extra_dirs, info
+            TREE / "public/internal/admin/inc"] + ddk_dirs + extra_dirs, info
 
 
 def compile_unit(src: Path, target: Target, work: Path, incdirs: list[Path], defines: list[str],
@@ -670,6 +712,7 @@ def compile_unit(src: Path, target: Target, work: Path, incdirs: list[Path], def
 
     base = [str(CC), "-fms-extensions", "-c", "-o", str(obj), "-Wno-everything",
             "-D_M_IX86=500", "-D_X86_=1", "-DSECURITY_WIN32=1", "-DCONST=const",
+            "-D_MSC_VER=1300", "-DBUILDING_DRIVER=1", "-DKERNEL_MODE_TEST=0",
             ] + (["-fpermissive", "-Wno-error"] if src.suffix.lower() in (".cpp", ".cxx") else []) + defines + include_flags + extra_flags
 
     text = src.read_text(encoding="latin-1")
