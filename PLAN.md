@@ -38,9 +38,10 @@ Not a roadmap — measured state as of today.
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
-| **Any Anemos code** | ❌ **none** | — |
+| **Any Anemos code** | ✅ **started** | `anemos/md5/` — first unit of P1, RFC 1321 vectors (`anemos/md5/run.sh`) |
 
-**There is no Anemos yet.** There is a proven method for producing and verifying one.
+The method is proven, and the first line of Anemos is written and gated
+(`anemos/md5/`). Everything from here is substitution work behind stable interfaces.
 
 ---
 
