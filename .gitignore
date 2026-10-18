@@ -1,0 +1,6 @@
+boot/out/
+kernel/out/
+/out/
+*.o
+*.a
+*.elf
