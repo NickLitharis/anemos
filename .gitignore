@@ -6,3 +6,6 @@ kernel/out/
 *.elf
 
 tools/abi/out/
+
+harness/conformance/out/
+__pycache__/

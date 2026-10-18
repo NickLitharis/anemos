@@ -36,7 +36,7 @@ Not a roadmap — measured state as of today.
 | Host-side binary swap, no root | ✅ | `tools/ntfspatch.py` |
 | Legal boundary | ✅ | `LICENSE`, `NOTICE.md`, `SCOPE.md` |
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
-| **Conformance runner** | ❌ **not built** | — |
+| **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
 | **Any Anemos code** | ❌ **none** | — |
 
@@ -68,7 +68,13 @@ trustworthy** — every replacement would silently corrupt structures.
 
 This is the highest-risk item in the entire project and it costs one day. Do it first.
 
-### G2 — Conformance runner  *(~1 week)*
+### G2 — Conformance runner  *(~1 week)* — **PASSED 2026-10-18**
+
+**Status:** one VM, two disks, keyboard-driven probe inside XP, host-side extraction
+through `tools/ntfspatch.py`. Reports **IDENTICAL** for the same disk twice (stability)
+and for `xp-pristine.vmdk` vs `xp.vmdk` (the gate); both of its failure directions were
+demonstrated (one changed guest-file byte, one flipped console pixel). See
+`docs/G2-CONFORMANCE-RUNNER.md`; reproduce with the commands in that document.
 
 **Question:** can we prove a replacement behaves like XP?
 
@@ -138,8 +144,12 @@ nobody has legally rewritten.
 ## Next three actions
 
 1. ~~**G1 — ABI proof.**~~ **Passed 2026-10-18** (`docs/G1-ABI-PROOF.md`).
-2. **G2 — conformance runner skeleton**, validated on the two kernels we already have.
-3. **P1 — first replacement**, to exercise the runner on something real.
+2. ~~**G2 — conformance runner skeleton**, validated on the two kernels we already have.~~
+   **Passed 2026-10-18** (`docs/G2-CONFORMANCE-RUNNER.md`): reports IDENTICAL on
+   `xp.vmdk` vs `xp-pristine.vmdk`, and fails when it should.
+3. **P1 — first replacement**, to exercise the runner on something real: CRC-32 and
+   friends are host-side work, but the first subject swap (`ntoskrnl.exe` or a library)
+   runs through this runner.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
