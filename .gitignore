@@ -10,4 +10,4 @@ tools/abi/out/
 harness/conformance/out/
 __pycache__/
 
-anemos/md5/out/
+anemos/*/out/
