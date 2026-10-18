@@ -1,6 +1,19 @@
 # Project state (updated as work proceeds)
 
-## Verified: XP SP1 kernel source executing on modern hardware
+## Current status: our source-built `ntoskrnl.exe` boots a full Windows XP install
+
+All 59 kernel libraries build with the tree's own MSVC toolchain under Wine, and the
+resulting kernel boots a complete XP SP1 installation to a working Luna desktop. It has
+1,464 exports — the same name set as Microsoft's, with an identical `.edata` size. Verified
+by hashing the kernel back out of the VMDK. **See v2.0 at the end of this file** and
+`docs/KERNEL-BOOTS-XP.md`.
+
+The sections below are the earlier freestanding work: reimplementing XP's internals against
+hand-written shims. Still useful, no longer the main road.
+
+---
+
+## Verified (freestanding): XP SP1 kernel source executing on modern hardware
 
 Build: `./kernel/build.sh ./kernel/out` -> `libxprtl.a` (61 KB, 140 routines,
 14 XP source files). Runtime: `./boot/build.sh` + QEMU.
@@ -28,12 +41,19 @@ in `kernel/NOTES-prefix.md`).
   memory primitives, 64-bit division helpers, splay macros, **DbgPrint**
 - `boot/` — multiboot image builder; tests assert values in-guest
 
-## Hard boundary (measured, not assumed)
+## Hard boundary (measured, not assumed) — SUPERSEDED, see v2.0 below
+
+> **No longer the boundary.** This section describes what happens when you try to
+> compile `base/ntos` *freestanding*, with hand-written shims. That still fails as
+> described. But the kernel does not have to be compiled that way: the tree ships
+> its own MSVC toolchain, and building with razzle under Wine compiles and links the
+> whole kernel, which then boots a real XP install. Read this as "the freestanding
+> route hits a wall", not "the kernel is unreachable".
 
 Including the tree's own `base/ntos/inc/ntos.h` freestanding fails with 11
 residual errors, all type-graph problems (`C_ASSERT` size asserts,
 `SYSTEM_*` types, incomplete enums). `ke/`, `mm/`, `io/`, `ob/`, `ps/` need the
-kernel object model and are **not reachable** by adding shims.
+kernel object model and are **not reachable by adding shims**.
 See `kernel/README2.md`.
 
 ## Harness (user-mode builds)
@@ -101,3 +121,68 @@ My test asserted the flag was set after allocation and reported FAIL. XP was
 right; the test was wrong. Corrected to set the bit as the caller would.
 
 `libxprtl.a`: 155 routines, 18 XP sources. 11 verified suites, all passing.
+
+---
+
+# v2.0 — the real kernel builds AND boots a full XP install
+
+Everything above this line was freestanding experiments: reimplementing XP's
+internals against hand-written shims, one routine at a time. That work is real
+and still useful for understanding, but it is **no longer the main road**.
+
+The tree ships its own MSVC toolchain in `NT/tools/x86/` (`cl.exe`, `c1.dll`,
+`c1xx.dll`, `link.exe`, `nmake.exe`, `ml.exe`, `rc.exe`, `build.exe`). It runs
+under Wine. That removed the entire "can this even compile" question.
+
+## What is true now (each item verified, not inferred)
+
+| Claim | How it was checked |
+|---|---|
+| All 59 kernel libraries build | every `base/ntos/*` variant: up, mp, pae, paemp |
+| `ntoskrnl.exe` links | 1,918,976 bytes, **1,464 exports — same name set as Microsoft's** |
+| Export surface really matches | `.edata` size identical to the shipped kernel: `0xb258` |
+| Debuggable | real 6.1 MB `ntoskrnl.pdb` produced |
+| Supporting binaries | `hal.dll` 101,376 · `bootvid.dll` 12,288 · `kdcom.dll` 7,168 |
+| **It boots** | full XP SP1 install → Luna desktop, responsive `cmd.exe` |
+| The booting kernel is *ours* | hashed back out of the VMDK: md5 `96896c94…`, Microsoft's `b9080d97…` absent |
+
+Full procedure and evidence: `docs/KERNEL-BOOTS-XP.md`, `docs/KERNEL-BUILDS.md`.
+
+## How the swap is done (the only reliable way)
+
+Windows locks `ntoskrnl.exe` while running. Recovery Console works in principle
+but cannot be driven over VMware's VNC server, which drops `:` — this cost hours.
+The answer is to stop using the guest keyboard: `tools/ntfspatch.py` patches the
+VMDK from the host, parsing the VMDK grain directory and NTFS's MFT and indexes.
+No root, no loop device, no nbd, no VMware Tools.
+
+## Two mistakes that cost a working install
+
+1. **Do not resize the file in its MFT record.** Our kernel is 123,264 bytes
+   smaller than Microsoft's. Editing `$DATA`'s real-size field corrupted the
+   record: `dir` reported `0 ntoskrnl.exe` and the file became unopenable —
+   while the already-loaded kernel kept running, which made it look fine.
+   Keep the original size and zero-pad instead; Windows honours the PE headers.
+2. **Do not re-apply the update-sequence array when rewriting an MFT record.**
+   Write file data through the runlist and leave records alone.
+
+Backup first (`cp xp.vmdk xp-before-kernelswap.vmdk`); restoring it recovers.
+
+## Rule for the build
+
+Always `-Z`, never `-cZ`. `-c` wipes `obj/`, destroying tracked prebuilt `.obj`
+files whose source is missing from the leak — sometimes the only copy.
+
+## What this does and does not prove
+
+It proves the kernel **initialises, runs a complete install, and drives the GUI**.
+It does not prove every subsystem is correct — nothing driver-heavy has been
+exercised yet. Next meaningful test: disk I/O stress, networking, and a 3D game,
+diffed against `xp-pristine.vmdk` running Microsoft's kernel on the same disk.
+
+## Where the plan stands
+
+`MODERNIZATION_PLAN.md` has been re-based on this: **M0 is done**, and
+**M2 (performance) is now the live track** rather than a blocked aspiration.
+The whole VM is drivable headlessly, so any perf change can be A/B'd by swapping
+one file in the VMDK and rebooting.

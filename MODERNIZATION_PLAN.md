@@ -6,6 +6,12 @@ Goals, in the user's words: **x64 · faster · no Microsoft-proprietary code · 
 This plan is ordered by *dependency*, not by ambition. Each milestone has a
 **gate**: a check that can fail. A milestone is not done until its gate passes.
 
+> **Status (2026-10-18):** the kernel is no longer hypothetical. All 59 kernel
+> libraries build with the tree's own razzle toolchain under Wine, and the resulting
+> `ntoskrnl.exe` **boots a full XP SP1 installation to a working desktop**.
+> See `docs/KERNEL-BOOTS-XP.md` and `docs/KERNEL-BUILDS.md`. M0 and the first half
+> of M2 are therefore already done; this document has been re-based on that fact.
+
 ---
 
 ## Part 1 — What we already have
@@ -48,25 +54,63 @@ build-manager client, **not** a compiler script.
 |---|---|---|
 | Universal Ctags 6.2.0 | `~/.local/bin/ctags` | ✅ **5,333,276 tags** over 115,078 files |
 | cppcheck | `~/.local/bin/cppcheck` | ✅ |
-| wine | system | ✅ runs PE32 |
-| gcc 14.2 | system | ⚠️ Linux ELF only, no Windows headers |
-| mingw-w64 | — | ❌ not installed (`sudo apt install gcc-mingw-w64-i686`) |
-| REA + Ghidra | — | ❌ M1 tooling |
+| wine + `~/.wine-xp` prefix | system | ✅ runs the tree's **own** MSVC toolchain |
+| **In-tree MSVC toolchain** | `NT/tools/x86/` | ✅ `cl.exe c1.dll c1xx.dll link.exe nmake.exe ml.exe rc.exe build.exe` |
+| mingw-w64 | `~/.local/opt/llvm-mingw-20261006-msvcrt` | ✅ for user-mode probes |
+| REA + Ghidra 12.1.4 | `~/ghidra/`, MCP in `~/.pi/agent/mcp.json` | ✅ 209 tools |
+| `harness/razzle.sh` | `harness/` | ✅ drives razzle under Wine |
 | `legacy-nt-modernization` skill | `~/.pi/agent/skills/` | ✅ loaded (census baked in) |
+
+### 1.5a Build capability (measured, not assumed)
+
+| Claim | Evidence |
+|---|---|
+| 59 kernel libraries build | every `base/ntos/*` arch variant: up, mp, pae, paemp |
+| `ntoskrnl.exe` links | 1,918,976 bytes, **1,464 exports — same name set as Microsoft's**; `.edata` size matches exactly (0xb258) |
+| Real debug info | 6.1 MB `ntoskrnl.pdb` |
+| Supporting binaries | `hal.dll` 101,376 · `bootvid.dll` 12,288 · `kdcom.dll` 7,168 |
+| **It boots** | full XP SP1 install reaches Luna desktop on our kernel; verified by hashing the kernel back out of the VMDK |
+
+Two non-`base/ntos` libraries are required for the link: `base/boot/bootvid` and
+`base/boot/kdcom`, built before `base/ntos/init/up`.
+
+**Rule:** always build with `-Z`, never `-cZ`. `-c` wipes `obj/`, which destroys tracked
+prebuilt `.obj` files whose sources are missing from the leak — sometimes the only copy.
 
 ### 1.6 Known dead ends (do not retry)
 
 - 8 LFS pointers (`enduser/speech/tts/truetalk/voices/*/*.sfont`) — 404 server-side, permanent.
-- Full razzle build — impossible without MSVC 6 + DDK.
 - A 34B-class local model — 15.5 GiB RAM, no GPU; needs ≥40 GiB.
+- **Replacing a running kernel from inside Windows** — the file is locked. Explorer's
+  replace dialog accepts "Yes" and silently does nothing; `copy /y` fails. Use the
+  host-side VMDK patcher (`tools/ntfspatch.py`) with the VM powered off.
+- **Typing `:` over VMware's VNC server** — shift-modified punctuation is dropped. No
+  keysym variant works (`colon`, `shift-colon`, `shift-semicolon`, raw `0x3a`). This is
+  what blocked Recovery Console for so long; don't reintroduce a dependency on it.
+- **VMware Tools for XP** — the shipped `windows-x86.iso` is 12.4.8 and its MANIFEST
+  lists only `_Win7`/`_Win8` drivers. `vmrun runProgramInGuest` is unavailable.
+- **`bios.bootOrder` in the `.vmx`** — ignored by Workstation/Player. To force CD boot,
+  detach the hard disk or catch the prompt by polling screenshots.
+- Full razzle build of *everything* — the kernel subtree builds; whole-tree still needs
+  pieces not in the leak.
 
 ---
 
 ## Part 2 — Milestones
 
-### M0 — Prove the code compiles at all  ⟵ **current**
+### M0 — Prove the code compiles at all  ✅ **DONE**
 
-Nothing downstream is real until this passes. Everything else is speculation.
+Superseded and exceeded. We did not need a mingw-w64 port to answer the question: the tree
+ships its own MSVC toolchain, and it runs under Wine. The whole kernel subtree compiles and
+links, giving `ntoskrnl.exe` with a matching 1,464-export surface.
+
+**Gate result:** a kernel built entirely from this tree's source **boots a full XP install**.
+Evidence: `docs/KERNEL-BOOTS-XP.md` (screenshots, MD5s, procedure).
+
+The user-mode port probe (`admin/cmdline/eventcreate`) is no longer on the critical path and
+remains only as a demo of the mingw route; `harness/xpbuild.py` covers that ground.
+
+<details><summary>Original M0 plan, kept for reference</summary>
 
 **Probe target chosen:** `admin/cmdline/eventcreate` — 1,190 LOC C, single translation unit,
 Win32-only (`windows.h`, `stdio`, `tchar`), no kernel/win32k headers. Dependencies:
@@ -84,11 +128,14 @@ Win32-only (`windows.h`, `stdio`, `tchar`), no kernel/win32k headers. Dependenci
 
 **Time:** 1–2 focused sessions. **Risk:** high (this is the honest make-or-break).
 
+</details>
+
 ---
 
 ### M1 — x64 direction (kernel-first, never UI-first)
 
-Only meaningful after M0. Focus on the smallest truthful step.
+Only meaningful after M0 — which has now passed, so this is unblocked. Focus on the smallest
+truthful step. Nothing has been attempted here yet.
 
 **Known state:** `base/ntos/mm/amd64` = 4 files (`dataamd.c`, `initamd.c`, `miamd.h`, `sources`).
 That is a stub. `nical`/`halia64` exist; nothing x64 for HAL.
@@ -109,9 +156,16 @@ That is a stub. `nical`/`halia64` exist; nothing x64 for HAL.
 
 ---
 
-### M2 — Performance (do this in parallel with M0 once *any* build exists)
+### M2 — Performance  ⟵ **current**
 
-Highest value per hour, zero visual risk, and the only goal that needs no porting.
+Highest value per hour, zero visual risk, and the only goal that needs no porting. The
+prerequisite — *a build that actually runs* — now exists, so this is the live track.
+
+**Measurement baseline now available.** `xp.vmx` boots our kernel to a desktop, and the
+whole VM is driven headlessly: `vmrun start … nogui`, VNC capture via
+`vncdo -s 127.0.0.1::5901 -p xpvm capture out.png`, keystrokes via `vncdo type`. Every perf
+change can be A/B'd by swapping one kernel file into the VMDK and booting again
+(`tools/ntfspatch.py`). Keep `xp-pristine.vmdk` as the Microsoft-kernel control.
 
 **Targets already identified in-tree**
 
@@ -123,12 +177,14 @@ Highest value per hour, zero visual risk, and the only goal that needs no portin
 | Explorer startup polling | `shell/explorer` (tray, startmnu, trayclok) | hard-coded poll intervals |
 
 **Steps**
-1. Establish a baseline first: which build do we measure? (needs M0 output)
+1. ~~Establish a baseline~~ — baseline is our kernel in `xp.vmx`; control is
+   `xp-pristine.vmdk` (Microsoft's kernel). Same disk, same VM, one file differs.
 2. One change at a time, each with a measurable before/after.
-3. Pixel-identity check for anything touching ntgdi/ntuser/theme.
+3. Pixel-identity check for anything touching ntgdi/ntuser/theme (feeds M4).
 
-**Gate:** a measured improvement on a stated workload, with UI screenshots byte-identical.
-**Risk:** low. **Blocked on:** M0.
+**Gate:** a measured improvement on a stated workload, with UI screenshots byte-identical —
+*against the Microsoft kernel*, since both now boot on identical hardware.
+**Risk:** low. **Blocked on:** nothing.
 
 ---
 
@@ -148,35 +204,45 @@ The tree contains **no third-party blob**; it is all Microsoft source. So this g
 
 ---
 
-### M4 — Appearance guarantee harness (cross-cutting, start early)
+### M4 — Appearance guarantee harness (cross-cutting, can start now)
 
 The constraint "don't change the looks" needs an automated check, not good intentions.
+With two bootable kernels on the same disk, this is a straight image diff — no longer
+hypothetical.
 
 **Steps**
 1. Choose a fixed set of screens (desktop, start menu, My Computer, a control panel page, GDI text sample).
 2. Capture reference screenshots from an unmodified XP SP1 VM.
 3. After every M2/M3 change, re-capture and diff.
 
-**Gate:** a diff harness that can fail. **Risk:** low, high payoff. **Can start now** (needs a VM, not our build).
+**Gate:** a diff harness that can fail. **Risk:** low, high payoff. **Unblocked:** our kernel
+boots, so reference-vs-ours captures are both obtainable from `xp.vmx`.
 
 ---
 
 ## Part 3 — Order of work
 
 ```
-M0 probe ──► M2 perf (once any build runs) ──► M4 harness (parallel, needs VM only)
+M0 build+boot ✅
+   │
+   ├──► M2 perf  ⟵ current   ──► M4 harness (parallel)
    │
    └──► M1 x64 skeleton ──► M1 partial kernel ──► (long horizon)
                                     │
                                     └──► M3 subsystem replacement (last)
 ```
 
-## Part 4 — What must be decided before M0 starts
+## Part 4 — Decisions already settled
 
-1. **Accept the goal split?** Appearance = free; perf = achievable; x64 = port, not flag; "de-Microsoft" = subsystem replacement.
-2. **Probe target confirmed?** `admin/cmdline/eventcreate` (Win32 console tool, 1 unit, no kernel deps).
-3. **Toolchain choice for M0:** mingw-w64 (needs `sudo apt install`) vs. LibreOffice/LLVM-cl-based route.
-4. **Is a Windows XP VM available** for the M4 appearance harness?
+1. ~~Goal split~~ — accepted: appearance = free; perf = achievable; x64 = port, not a flag;
+   "de-Microsoft" = subsystem replacement.
+2. ~~Probe target~~ — moot. The tree's own toolchain answers M0 directly.
+3. ~~Toolchain for M0~~ — **the tree's own MSVC under Wine**, not mingw. This kills the
+   `C_ASSERT`/struct-size blocker by construction.
+4. ~~Is a VM available~~ — yes, `~/vms/xpvmware/xp.vmx`, driven headlessly over VNC.
+5. **Still open:** whether to keep pursuing a mingw-w64 source port at all. The razzle route
+   builds the kernel today, but it depends on Wine and a leak-era compiler — fine for
+   *measuring* and *patching*, not obviously fine as the long-term modern toolchain for x64.
 
 ## Part 5 — Honest expectations
 
@@ -186,4 +252,4 @@ M0 probe ──► M2 perf (once any build runs) ──► M4 harness (parallel,
 | Faster | Genuinely achievable on the paths listed, verifiable. |
 | x64 | Years of work at full effort; first useful milestone is a linking skeleton. |
 | No MS code | Means rewriting subsystems; achievable one subsystem at a time, not wholesale. |
-| Fully booting modern XP | Not realistic from this tree — it lacks a complete build environment. |
+| Fully booting modern XP | ~~Not realistic~~ — **already done** for the kernel. It builds and boots a complete XP SP1 install. What the tree still lacks is everything *above* the kernel: a full user-mode/shell link and a driver set. |
