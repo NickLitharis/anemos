@@ -183,9 +183,15 @@ typedef struct _RTL_AVL_TABLE {
     PVOID TableContext;
 } RTL_AVL_TABLE, *PRTL_AVL_TABLE;
 
-#define try      /* SEH is unavailable freestanding */
-#define except(a) if (0)
-#define finally  if (1)
+/* SEH emulation:  try { ... } except(a) { handler }
+   expands to  if (1) do { { ... } } while(0); else { handler }
+   The handler never runs (no real exceptions in the freestanding
+   environment), and `leave` (break) exits the do-while, landing past the
+   handler / at the finally block — exactly like SEH __leave.
+   try/finally-only becomes  if (1) do { { ... } } while(0); { finally body }. */
+#define try      if (1) do {
+#define except(a) } while(0); else
+#define finally  } while(0);
 #define leave    break
 
 
@@ -1984,14 +1990,29 @@ typedef struct _XP_PEB {
     unsigned char Reserved1[0x18];           /* up to ImageBaseAddress */
     void *ImageBaseAddress;
     void *Ldr;
-    void *ProcessParameters;
+    struct _XP_RTL_USER_PROCESS_PARAMETERS *ProcessParameters;
     void *SubSystemData;
     void *ProcessHeap;
     void *FastPebLock;                       /* PRTL_CRITICAL_SECTION */
     void *FastPebLockRoutine;
     void *FastPebUnlockRoutine;
+    unsigned long EnvironmentUpdateCount;
 } XP_PEB, *PPEB;
 typedef void *PLDR_DATA_TABLE_ENTRY;
+
+/* RTL_USER_PROCESS_PARAMETERS: only Environment, which environ.c uses.
+   In the real PEB this struct's Environment field is at offset 0x48. */
+typedef struct _XP_CURDIR { UNICODE_STRING DosPath; void *Handle; } XP_CURDIR;
+typedef struct _XP_RTL_USER_PROCESS_PARAMETERS {
+    unsigned char Reserved1[0x20];
+    XP_CURDIR CurrentDirectory;
+    UNICODE_STRING DllPath;
+    UNICODE_STRING ImagePathName;
+    UNICODE_STRING CommandLine;
+    void *Environment;
+    unsigned long EnvironmentSize;
+    unsigned long EnvironmentUpdateCount;
+} XP_RTL_USER_PROCESS_PARAMETERS;
 
 
 extern XP_PEB XpPeb;
@@ -2116,4 +2137,140 @@ typedef union _SLIST_HEADER_REAL {
 typedef SLIST_HEADER_REAL *PSLIST_HEADER;
 typedef SLIST_HEADER_REAL SLIST_HEADER;
 
+/* --- RTL_USER_PROCESS_PARAMETERS, verbatim field list from the tree's
+     ntrtl.h (line 3717) — needed by environ.c via PEB->ProcessParameters -- */
+typedef struct _RTL_USER_PROCESS_PARAMETERS {
+    ULONG MaximumLength;
+    ULONG Length;
+    ULONG Flags;
+    ULONG DebugFlags;
+    void *ConsoleHandle;
+    ULONG ConsoleFlags;
+    void *StandardInput;
+    void *StandardOutput;
+    void *StandardError;
+    UNICODE_STRING CurrentDirectory_DosPath;
+    void *CurrentDirectory_Handle;
+    UNICODE_STRING DllPath;
+    UNICODE_STRING ImagePathName;
+    UNICODE_STRING CommandLine;
+    void *Environment;              /* NtAllocateVirtualMemory */
+} RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
+
+/* --- CONTEXT: i386 layout copied from the tree's winnt.h (line ~1996) ---
+   Only the fields RtlAssert2 needs (ContextFlags) are meaningful here; the
+   rest is the real x86 CONTEXT shape so the struct can never be mis-sized. */
+typedef struct _FLOATING_SAVE_AREA {
+    DWORD ControlWord, StatusWord, TagWord, ErrorOffset, ErrorSelector;
+    DWORD DataOffset, DataSelector, Cr0NpxState;
+    BYTE RegisterArea[80];
+} FLOATING_SAVE_AREA;
+
+typedef struct _CONTEXT {
+    DWORD ContextFlags;
+    DWORD Dr0, Dr1, Dr2, Dr3, Dr6, Dr7;
+    FLOATING_SAVE_AREA FloatSave;
+    DWORD SegGs, SegFs, SegEs, SegDs;
+    DWORD Edi, Esi, Ebx, Edx, Ecx, Eax;
+    DWORD Ebp, Eip, SegCs, EFlags, Esp, SegSs;
+    BYTE ExtendedRegisters[512];
+} CONTEXT;
+
+static __inline__ void RtlCaptureContext(CONTEXT *ContextRecord) {
+    __asm__ volatile(
+        "movl %%esp, %0\n\t"
+        "movl %%ebp, %1\n\t"
+        "pushfl\n\t"
+        "popl %2"
+        : "=r"(ContextRecord->Esp), "=r"(ContextRecord->Ebp), "=r"(ContextRecord->EFlags)
+    );
+    ContextRecord->ContextFlags = 0x00010001;   /* CONTEXT_i386 | CONTEXT_CONTROL */
+}
+
+/* --- DbgPrompt: reads from the QEMU debug console. In freestanding tests
+   there is no debugger; return 0 so the caller's prompt loop sees EOF and
+   treats it as "no response". assert.c's `Response` buffer is then left
+   zeroed, and its while loop falls through to 'terminate Process'. */
+static __inline__ unsigned long DbgPrompt(const char *Prompt, char *Response, unsigned long Length) {
+    unsigned long i;
+    (void)Prompt;
+    if (Length) { for (i = 0; i < Length; i++) Response[i] = 0; }
+    return 0;
+}
+
+static __inline__ void DbgBreakPoint(void) {
+    __asm__ volatile("int $3");
+}
+
+#define NtCurrentThread() ((void *)-2)
+static __inline__ long ZwTerminateProcess(void *Process, long Status) {
+    (void)Process; (void)Status;
+    for(;;) __asm__ volatile("hlt");
+    return 0; /* not reached */
+}
+static __inline__ long ZwTerminateThread(void *Thread, long Status) {
+    (void)Thread; (void)Status;
+    for(;;) __asm__ volatile("hlt");
+    return 0; /* not reached */
+}
+
+/* --- ZwQueryVirtualMemory: freestanding stand-in for the NT syscall.
+   Only MemoryBasicInformation is needed by environ.c; report the current
+   allocated heap size as the "region size" so the caller can query how much
+   room is left, and confirm the region starts inside the arena. */
+#define MemoryBasicInformation 0
+static __inline__ long XpZwQueryVirtualMemory(void *Process, void *BaseAddress,
+        unsigned long InfoClass, void *Buffer, unsigned long Length, unsigned long *ReturnLength) {
+    (void)Process; (void)InfoClass; (void)Length;
+    if ((unsigned char *)BaseAddress < XpHeapArena ||
+        (unsigned char *)BaseAddress >= XpHeapArena + XpHeapSize) {
+        return (long)0xC00000EFL;   /* STATUS_NOT_COMMITTED */
+    }
+    if (Buffer) {
+        MEMORY_BASIC_INFORMATION *mbi = (MEMORY_BASIC_INFORMATION *)Buffer;
+        mbi->BaseAddress       = BaseAddress;
+        mbi->AllocationBase    = XpHeapArena;
+        mbi->AllocationProtect = PAGE_READWRITE;
+        mbi->RegionSize        = XpHeapSize - ((unsigned char *)BaseAddress - XpHeapArena);
+        mbi->State             = MEM_COMMIT;
+        mbi->Protect           = PAGE_READWRITE;
+        mbi->Type              = MEM_PRIVATE;
+    }
+    if (ReturnLength) *ReturnLength = sizeof(MEMORY_BASIC_INFORMATION);
+    return 0;
+}
+#define ZwQueryVirtualMemory XpZwQueryVirtualMemory
+#define ZwAllocateVirtualMemory XpNtAllocateVirtualMemory
+#define ZwFreeVirtualMemory     XpNtFreeVirtualMemory
+
+/* --- PEB / process parameters wiring for the test environment -----------
+   environ.c reaches the environment via NtCurrentPeb()->ProcessParameters->
+   Environment and guards access with FastPebLock. Both live in a small static
+   block that tests initialise through XpEnvInitProcessParameters(). */
+extern RTL_USER_PROCESS_PARAMETERS XpProcessParameters;
+extern RTL_CRITICAL_SECTION XpPebLock;
+static __inline__ void XpEnvInitProcessParameters(void) {
+    XpProcessParameters.MaximumLength = sizeof(XpProcessParameters);
+    XpProcessParameters.Length = sizeof(XpProcessParameters);
+    XpProcessParameters.Environment = 0;
+    XpPeb.ProcessParameters = &XpProcessParameters;
+    XpPeb.FastPebLock = &XpPebLock;
+}
+
+#define STATUS_BAD_COMPRESSION_BUFFER ((NTSTATUS)0xC0000242)
+/* verbatim from the tree's ntdef.h */
+#define RTL_CONSTANT_STRING(s) { sizeof( s ) - sizeof( (s)[0] ), sizeof( s ), s }
+
+/* prototypes environ.c calls; bodies live in other RTL files */
+NTSTATUS RtlFindCharInUnicodeString(unsigned long Flags, const UNICODE_STRING *S,
+                                    const UNICODE_STRING *CharSet, unsigned short *PrefixLen);
+#define RTL_FIND_CHAR_IN_UNICODE_STRING_START_AT_END        0x00000001
+#define RTL_FIND_CHAR_IN_UNICODE_STRING_COMPLEMENT_CHAR_SET 0x00000002
+#define RTL_FIND_CHAR_IN_UNICODE_STRING_CASE_INSENSITIVE    0x00000004
+BOOLEAN RtlDosPathNameToNtPathName_U(const unsigned short *DosName,
+                                     UNICODE_STRING *NtName, unsigned short **FilePart,
+                                     void *RelativeName);
+
+static const UNICODE_STRING RtlDosPathSeperatorsString = { 4, 4, L"\\/" };
+static const UNICODE_STRING RtlAlternateDosPathSeperatorString = { 2, 2, L"/" };
 #endif /* _XPKERNEL_H_ */
