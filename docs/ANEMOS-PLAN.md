@@ -1,3 +1,6 @@
+> **SUPERSEDED.** This document has been replaced by [`PLAN.md`](../PLAN.md).
+> Kept for history only. Where it disagrees with PLAN.md, PLAN.md wins.
+
 # Anemos — plan for a new OS inspired by Windows XP
 
 Written after the tool/skill survey (`docs/TASK-REQUIREMENTS.md`). No implementation
