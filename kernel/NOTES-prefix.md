@@ -111,3 +111,28 @@ print `Links->Parent`, `LeftChild`, `RightChild` each step. One run will show
 whether the parent chain cycles or terminates at a bogus node.
 
 **prefix.c remains unverified.** Everything else in v0.1-v0.8 stands.
+
+---
+
+## RESOLVED — the hang was my macro, not XP
+
+`RtlSplay` never terminated because **I had `RtlIsRoot` wrong**:
+
+```c
+/* what I wrote (WRONG) */
+#define RtlIsRoot(Links) ((Links)->Parent == 0)
+
+/* what the tree's ntrtl.h actually says */
+#define RtlIsRoot(Links) (RtlParent(Links) == (PRTL_SPLAY_LINKS)(Links))
+```
+
+An NT splay tree uses **a self-parent pointer as the root sentinel**, not NULL.
+With `Parent == 0` the root test never fired, so `while (!RtlIsRoot(L))` in
+`RtlSplay` rotated forever.
+
+This was found by reading XP's own macro instead of reasoning about the
+symptom. It is the same lesson as the other four failures in this project:
+**XP was right; my generated header was wrong.**
+
+`test_prefix` now passes with three inserts and three lookups.
+`./boot/run_all.sh` → **10/10**.

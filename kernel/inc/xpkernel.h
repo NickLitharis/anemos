@@ -376,7 +376,10 @@ static __inline__ unsigned char RtlCheckBit_prv(PRTL_BITMAP b, ULONG i) {
 #define RtlParent(Links)    ((struct _RTL_SPLAY_LINKS *)(Links)->Parent)
 #define RtlLeftChild(Links) ((struct _RTL_SPLAY_LINKS *)(Links)->LeftChild)
 #define RtlRightChild(Links)((struct _RTL_SPLAY_LINKS *)(Links)->RightChild)
-#define RtlIsRoot(Links)    ((Links)->Parent == 0)
+/* VERBATIM from the tree's ntrtl.h: the root's Parent points at ITSELF,
+   not NULL. Getting this wrong makes RtlSplay loop forever. */
+#define RtlIsRoot(Links) ((struct _RTL_SPLAY_LINKS *)(Links) == \
+                          (struct _RTL_SPLAY_LINKS *)(Links)->Parent)
 
 
 /* splay-tree primitives: macro bodies verbatim from public/sdk/inc/ntrtl.h */
