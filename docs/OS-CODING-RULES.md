@@ -128,6 +128,12 @@ implementation back and re-run the oracle.
 
 ## 10. Compiler settings are part of the standard
 
+**Toolchain is pinned:** clang 23.1.3 + lld-link 23.1.3 (latest upstream release).
+See `docs/TOOLCHAIN-POLICY.md` and `tools/toolchain.lock`. Nothing in the deliverable
+is built by the 2001-era MSVC in the tree; that toolchain remains only for building
+the legacy kernel used as the oracle.
+
+
 **Size note:** build with `-Oz`, not `-O2` — measured 2.6x smaller on real code. See
 `docs/SIZE-POLICY.md` for the full set of measured size levers, the flags that turned
 out not to help, and the per-subsystem budgets.
