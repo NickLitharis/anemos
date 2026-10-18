@@ -4,3 +4,5 @@ kernel/out/
 *.o
 *.a
 *.elf
+
+tools/abi/out/
