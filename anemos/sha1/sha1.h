@@ -21,10 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum AnemStatus {
-    ANEM_OK = 0,
-    ANEM_BADARG,        /* NULL pointer, or an argument that breaks an invariant */
-} AnemStatus;
+#include "../include/anem_status.h"
 
 typedef struct AnemSha1 {
     uint32_t state[5];  /* H0..H4 (FIPS 180-1 §6) */

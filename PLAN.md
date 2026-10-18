@@ -38,11 +38,12 @@ Not a roadmap — measured state as of today.
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
-| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1}/` — first two units of P1, RFC 1321 + FIPS 180-1 vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
+| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64}/` — first three units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
 
 The method is proven, and the first Anemos code is written and gated
-(`anemos/md5/`, `anemos/sha1/`). Everything from here is substitution work behind
-stable interfaces.
+(`anemos/md5/`, `anemos/sha1/`, `anemos/base64/`; shared status codes in
+`anemos/include/`). Everything from here is substitution work behind stable
+interfaces.
 
 ---
 
@@ -151,9 +152,11 @@ nobody has legally rewritten.
    `xp.vmdk` vs `xp-pristine.vmdk`, and fails when it should.
 3. **P1 — first replacement**, to exercise the runner on something real: CRC-32 and
    friends are host-side work, but the first subject swap (`ntoskrnl.exe` or a library)
-   runs through this runner. — **in progress 2026-10-19**: MD5 and SHA-1 landed
-   (`anemos/md5/`, `anemos/sha1/`), gated on published vectors + negative controls;
-   next Base64, then the `STATUS→DOS` map and NLS tables.
+   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1 and Base64
+   landed (`anemos/{md5,sha1,base64}/`), gated on published vectors + negative
+   controls; XP's base64 ABI is `crypt32!CryptBinaryToString/CryptStringToBinary`
+   (advapi32 has neither on this build); next the `STATUS→DOS` map and NLS tables,
+   then CRC-32.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
