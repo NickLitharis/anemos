@@ -85,3 +85,15 @@ Then: dependency-closure builder → kernel-entry probe → link PE → boot in 
 - **Next** — M1: make the boot image *run XP code*, i.e. link real `base/ntos`
   objects into it. Start with the smallest kernel object that has no external
   dependencies (`base/ntos/rtl` routines), then work outward.
+
+## Standing rule (added by owner)
+
+**Every new piece of work is delegated to a free OpenRouter agent.**
+Use `herdr_subagent` with model `openrouter/openrouter/free`. Monitor it; if it
+dies, stalls, or fails, either retry on a different free model
+(`openrouter/nvidia/nemotron-3-super-120b-a12b:free`,
+`openrouter/cohere/north-mini-code:free`) or finish the task directly.
+
+Always verify the agent's claims against artifacts before reporting success.
+Agents have previously reported success with empty output directories and
+deleted tracked files under `Source/`. Check the filesystem, not the summary.
