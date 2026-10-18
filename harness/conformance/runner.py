@@ -283,7 +283,8 @@ def open_cmd(workdir: Path, attempt: int) -> bool:
     return frac > 0.10
 
 
-def run_probe(workdir: Path) -> bool:
+def run_probe(workdir: Path, extra: list[str] | None = None,
+              settle: int = 10) -> bool:
     for attempt in range(1, 4):
         if open_cmd(workdir, attempt):
             break
@@ -291,7 +292,7 @@ def run_probe(workdir: Path) -> bool:
         log("  cmd.exe never took focus; probe not run")
         return False
 
-    for line in PROBE_COMMANDS:
+    for line in PROBE_COMMANDS + (extra or []):
         for tokens in line_tokens(line):
             if not send(tokens):
                 return False
@@ -300,7 +301,7 @@ def run_probe(workdir: Path) -> bool:
             return False
         time.sleep(3.0 if "driverquery" in line else 2.0)
 
-    time.sleep(10)             # let the guest finish writing before we cut power
+    time.sleep(settle)      # let the guest finish writing before we cut power
     return True
 
 
@@ -383,10 +384,11 @@ def shutdown_vm(grace: int = 120) -> None:
     stop_vm(VMX, "hard")
 
 
-def extract_guest_files(disk: Path, workdir: Path) -> dict[str, str]:
+def extract_guest_files(disk: Path, workdir: Path,
+                        names: list[str] | None = None) -> dict[str, str]:
     """Pull the probe's output out of the NTFS image, host-side."""
     hashes: dict[str, str] = {}
-    for name in PROBE_GUEST_FILES:
+    for name in (names if names is not None else PROBE_GUEST_FILES):
         out = workdir / f"guest-{name}"
         r = run(["python3", str(NFTPATCH), str(disk), "get",
                  f"\\conftest\\{name}", str(out)], timeout=180)
@@ -447,7 +449,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         probe_ok = False
         if reached and not args.no_probe:
             log("running probe")
-            probe_ok = run_probe(workdir)
+            probe_ok = run_probe(workdir, args.probe_cmd, args.settle)
 
         capture(workdir / "screen-final.bmp", delay=1.0)
         final_box, final_frac = red_bbox(workdir / "screen-final.bmp")
@@ -468,9 +470,10 @@ def cmd_run(args: argparse.Namespace) -> int:
             send(["key", "enter"])
 
         log("shutting down")
-        shutdown_vm()
+        shutdown_vm(grace=args.shutdown_grace)
 
-        hashes = extract_guest_files(disk, workdir) if probe_ok else {}
+        collect = PROBE_GUEST_FILES + (args.collect or [])
+        hashes = extract_guest_files(disk, workdir, collect) if probe_ok else {}
     finally:
         stop_vm(VMX, "hard")
         set_disk(DEFAULT_DISK)      # leave the tree's VM exactly as we found it
@@ -485,7 +488,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "guest_files": hashes,
         "screen_rect": final_box,
         "screen_red_fraction": round(final_frac, 4),
-        "probe_commands": PROBE_COMMANDS,
+        "probe_commands": PROBE_COMMANDS + (args.probe_cmd or []),
     })
     log(f"observations in {workdir}")
     return 0 if reached else 1
@@ -564,6 +567,21 @@ def main() -> int:
     p_run.add_argument("--timeout", type=int, default=VNC_TIMEOUT)
     p_run.add_argument("--no-probe", action="store_true",
                        help="boot only: observe whether the desktop is reached")
+    # The three flags below default to exactly the G2 behaviour, so every
+    # reproduction command in docs/G2-CONFORMANCE-RUNNER.md stays valid.
+    p_run.add_argument("--probe-cmd", action="append", default=None,
+                       metavar="LINE",
+                       help="extra guest command line, typed after the standard "
+                            "probe (repeatable)")
+    p_run.add_argument("--settle", type=int, default=10,
+                       help="seconds to wait after the last command before "
+                            "shutdown (default 10)")
+    p_run.add_argument("--collect", action="append", default=None,
+                       metavar="NAME",
+                       help="extra file to extract from \\conftest (repeatable)")
+    p_run.add_argument("--shutdown-grace", type=int, default=120,
+                       help="seconds to wait for the guest to power itself off "
+                            "before ACPI/hard stop (default 120)")
     p_run.set_defaults(func=cmd_run)
 
     p_cmp = sub.add_parser("compare", help="diff two observation collections")
