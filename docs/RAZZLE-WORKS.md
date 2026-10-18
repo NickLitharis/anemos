@@ -81,3 +81,40 @@ The `@N` stdcall decoration is MSVC codegen, not a shim.
 
 `docs/razzle-evidence/ntosrtl-build.log` — the full razzle log
 `docs/razzle-evidence/ntosrtl.lib` — the artifact itself
+
+---
+
+## Kernel layers built (verified with artifacts)
+
+| Target | Artifact | Objects | Size | Key symbols |
+|---|---|---:|---:|---|
+| `base\ntos\rtl\up` | `ntosrtl.lib` | 68 | 4.6 MB | `RtlCompareString`, `RtlInitUnicodeStringEx` |
+| `base\ntos\ke\up` | `ke.lib` | 78 | 1.3 MB | `KiSwapThread`, `KiFindReadyThread`, `NtYieldExecution` |
+| `base\ntos\ex\up` | `ex.lib` | — | 4.6 MB | executive |
+| `base\ntos\mm\up` | `mm.lib` | 64 | 2.2 MB | `MmAccessFault`, `MmWorkingSetManager` |
+
+`mm.lib` contains the memory manager: `acceschk`, `addrsup`, `allocpag`,
+`allocvm`, `buildmdl`, `checkpfn`, `mmfault` (`MmAccessFault@16`), `wsmanage`
+(`MmWorkingSetManager`, `MmTrimAllSystemPagableMemory`).
+
+## THE `-c` TRAP — read before building anything
+
+`harness/razzle-env.cmd` sets `BUILD_DEFAULT=daytona -e -E -w -nmake -i` and
+`razzle.sh` passes `-cZ`. **`-c` forces a clean**, which deletes `obj/` —
+including *tracked prebuilt objects whose source is missing from the leak*.
+
+Concretely: `base/ntos/ex/up/obj/i386/exinit.obj` (142,847 bytes, tracked)
+provides `ExInitSystem`, `ExInitSystemPhase2`, `ExGetPreviousMode`,
+`ExSystemExceptionFilter`, `ExInitializeSystemLookasideList`, `ExVerifySuite`.
+`exinit.c` **is not in the leak**. `-c` deletes the object; the build then fails
+with `NMAKE : U1073: don't know how to make 'obj\i386\exinit.obj'`.
+
+**Build with `-Z` instead of `-cZ`:**
+
+```sh
+harness/razzle.sh 'base\ntos\ex\up' -Z     # correct
+harness/razzle.sh 'base\ntos\ex\up' -cZ    # destroys exinit.obj
+```
+
+If an object was already destroyed: `git checkout -- Source/XPSP1/NT/base/ntos/ex/`
+restores it. **Never `git clean` under `Source/`.**
