@@ -1,3 +1,6 @@
+> **SUPERSEDED.** This document has been replaced by [`PLAN.md`](../PLAN.md).
+> Kept for history only. Where it disagrees with PLAN.md, PLAN.md wins.
+
 # Replacing Microsoft's implementations with modern, license-clean code
 
 The goal: **every subsystem that Microsoft wrote, reimplemented on modern standards,

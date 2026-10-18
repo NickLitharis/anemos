@@ -1,3 +1,6 @@
+> **SUPERSEDED.** This document has been replaced by [`PLAN.md`](../PLAN.md).
+> Kept for history only. Where it disagrees with PLAN.md, PLAN.md wins.
+
 # XP SP1 Modernization — Master Plan
 
 Tree: `/home/marocos/winxp_source/Source/XPSP1/NT` — 67.8M LOC, 277,865 files, commit `a2f6d7c93`.
