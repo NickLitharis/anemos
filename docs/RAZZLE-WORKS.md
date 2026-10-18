@@ -118,3 +118,49 @@ harness/razzle.sh 'base\ntos\ex\up' -cZ    # destroys exinit.obj
 
 If an object was already destroyed: `git checkout -- Source/XPSP1/NT/base/ntos/ex/`
 restores it. **Never `git clean` under `Source/`.**
+
+---
+
+## Full kernel library set (22 of 24 subsystems)
+
+Built with `harness/razzle.sh '<dir>' -Z` after the rtl/ke/ex/mm first wave:
+
+```
+ntosrtl  ke  ex  mm  config(bconfig)  kd  ob  se  po  ps
+arb / arbiter / halarbiter  io / iomgr / pnpmgr / CSQ
+cache  lpc  dbgk  raw  fstub  FsRtl  vdm  verifier
+wmi / wmiTrace  perf
+```
+
+Missing only:
+
+| subsystem | blocker |
+|---|---|
+| `nls` | needs `bugcodes.h` generated from `bugcodes.mc` via `mc.exe` |
+| `init` | depends on `nls` producing `MSG00001.bin` |
+
+### The mc.exe problem is solved
+
+`harness/bin/mc.cmd` substitutes the in-tree `base/mvdm/tools/mc.exe`, which
+works under Wine:
+
+```sh
+wine cmd /c "W:\NT\base\mvdm\tools\mc.exe -h . -r . W:\NT\base\ntos\nls\bugcodes.mc"
+  MC: Compiling W:\NT\base\ntos\nls\bugcodes.mc
+  -> bugcodes.h (51,787 B), bugcodes.rc, MSG00001.bin (16,676 B)
+```
+
+Cross-check against the shipped `public/sdk/inc/bugcodes.h` (49,415 B): the
+**set of 246 bug-code symbols is identical** — only formatting differs, because
+this is a different mc version. Semantically correct.
+
+### Tree hygiene
+
+Building `arb`/`io` overwrites 5 tracked files (`public/ddk/lib/i386/*.lib`,
+`public/halkit/lib/i386/halarbiter.lib`, `public/internal/base/inc/bugcodes.txt`).
+Restore after any build:
+
+```sh
+git checkout -- Source/XPSP1/NT/public/
+git status --porcelain -uall Source/ | grep -v '^??'   # must be empty
+```
