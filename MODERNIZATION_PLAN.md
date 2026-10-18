@@ -28,7 +28,7 @@ This plan is ordered by *dependency*, not by ambition. Each milestone has a
 | Shell | `shell` — 14,763 files (explorer, shell32, themes) |
 | User DLLs | `base/win32/client` (kernel32), `base/win32/server` (user32), `windows/core/ntgdi/client` (gdi32) |
 | ntdll | `base/ntdll` — includes `amd64/`, `i386/`, `ia64/`, `wow64/` |
-| x64 code present | **151** `.c/.h/.asm` total, only in `base/boot/lib` + `base/crts/crtw32` shims |
+| x64 code present | **71** `.c/.h/.asm` under `base/ntos` amd64 dirs (vs 141 i386), plus 30 files in `base/hals/halacpi/amd64`. **21 of 23 kernel subsystems build for x64 today** — see `docs/X64-STATUS.md`. |
 
 ### 1.2 Chokepoint headers (how to read the tree cheaply)
 
@@ -134,23 +134,48 @@ Win32-only (`windows.h`, `stdio`, `tchar`), no kernel/win32k headers. Dependenci
 
 ### M1 — x64 direction (kernel-first, never UI-first)
 
-Only meaningful after M0 — which has now passed, so this is unblocked. Focus on the smallest
-truthful step. Nothing has been attempted here yet.
+Only meaningful after M0 — which has now passed, so this is unblocked. **Measured, not
+assumed: see `docs/X64-STATUS.md`.**
 
-**Known state:** `base/ntos/mm/amd64` = 4 files (`dataamd.c`, `initamd.c`, `miamd.h`, `sources`).
-That is a stub. `nical`/`halia64` exist; nothing x64 for HAL.
+**The finding that changes this milestone's shape:** the tree contains a complete AMD64
+cross-compiler at `tools/win64/x86/amd64/` (`cl.exe`, `link.exe`, `ml64.exe`, `lib.exe`),
+and razzle already supports the target (`tools/makefile.plt`: `TARGET_DEFINES=-D_AMD64_
+-D_WIN64`). x64 is **a build flag that was never turned on**, not a porting research
+project.
+
+**Result of turning it on: 21 of 23 kernel subsystems build clean for x64.** The RTL
+produces a real 4.7 MB `ntosrtl.lib` with COFF machine type `0x8664`.
+
+**What actually blocks an x64 kernel link:** exactly two source files,
+`base/ntos/ex/exinit.c` and `systime.c`, were never included in the leak. For i386 and
+ia64 they are masked by prebuilt objects; no `obj/amd64/` equivalents exist. They are
+48 named functions, with signatures recoverable from the i386 objects. `ex` is a
+prerequisite for the kernel link, so this is the current gate.
+
+Three real defects were fixed to reach 21/23: missing `STATUS_*` equates in
+`kxamd64.inc`, the MASM hex-literal rule (`C0000005H` parses as a symbol; needs a
+leading zero), and a `const` on `MmPagedPoolStart` that contradicts an assignment in
+`mminit.c`. Details and repro commands in `docs/X64-STATUS.md`.
+
+**Known state (corrected):** the old note here said `base/ntos/mm/amd64` was a 4-file stub
+and there was no HAL for x64. Both were wrong: the kernel carries **71 amd64 files vs 141
+i386**, and `base/hals/halacpi/amd64/` has 30 files while `base/hals/x86new/amd64/sources`
+declares 24. Neither HAL has been built yet — that is the next measurement, not an unknown.
 
 **Steps**
-1. Install mingw-w64 x86_64 + Ghidra + REA (M1 tooling).
-2. Pick **one** unit with real amd64 code already in-tree (`base/ntdll/amd64` or `base/boot/lib/amd64`)
-   and get it to compile 64-bit first. Smallest possible win.
-3. Inventory `mm/amd64` against `mm/i386` symbol-by-symbol using the tags index; write the
-   missing-function list.
-4. Use REA+Ghidra on a reference AMD64 NT binary only for functions with no source analogue.
-5. Produce a 64-bit `ntoskrnl` skeleton that links (does not need to boot).
+1. ~~Pick one unit with real amd64 code~~ — done, and far beyond it: 21 subsystems build.
+2. Reconstruct `exinit.c` and `systime.c` for x64 (48 functions). This is the gate on
+   linking a kernel image. Signatures come from the prebuilt i386 objects and from the
+   prototypes exported in `base/ntos/init/ntoskrnl.src`; behaviour must be reproduced
+   from the i386 disassembly with REA+Ghidra. `ExpInitSystemPhase0/1` and
+   `ExpSetSystemTime` are the large ones — budget accordingly.
+3. Build the x64 HAL (`base/hals/halacpi/amd64`, 30 files). Never attempted.
+4. Link an x64 `ntoskrnl.exe` and compare its export surface to the 1,464 the x86 build
+   produces. The `amd64def.src` forced-inline export list already exists for this.
 
 **Gate:** a 64-bit PE kernel image that links, with a written list of what is still stubbed.
-**Explicitly out of scope at M1:** win32k x64, shell x64, booting.
+**Explicitly out of scope at M1:** win32k x64, shell x64, booting. Booting x64 additionally
+needs an entirely separate boot path (`ntldr` → x64 osloader, x64 HAL, x64 drivers).
 
 **Risk:** very high. **This is a multi-month milestone, not a sprint.**
 
@@ -250,6 +275,6 @@ M0 build+boot ✅
 |---|---|
 | Identical looks | Keepable — nothing requires touching rendering. |
 | Faster | Genuinely achievable on the paths listed, verifiable. |
-| x64 | Years of work at full effort; first useful milestone is a linking skeleton. |
+| x64 | **Revised.** The toolchain is in the tree and 21/23 kernel subsystems already compile for x64. The blocker is two missing source files (48 functions). Linking an x64 kernel is a bounded task, not a research program. |
 | No MS code | Means rewriting subsystems; achievable one subsystem at a time, not wholesale. |
 | Fully booting modern XP | ~~Not realistic~~ — **already done** for the kernel. It builds and boots a complete XP SP1 install. What the tree still lacks is everything *above* the kernel: a full user-mode/shell link and a driver set. |
