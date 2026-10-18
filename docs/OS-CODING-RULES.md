@@ -128,6 +128,11 @@ implementation back and re-run the oracle.
 
 ## 10. Compiler settings are part of the standard
 
+**Size note:** build with `-Oz`, not `-O2` — measured 2.6x smaller on real code. See
+`docs/SIZE-POLICY.md` for the full set of measured size levers, the flags that turned
+out not to help, and the per-subsystem budgets.
+
+
 ```
 clang -std=c23 -ffreestanding -fno-builtin -fno-stack-protector
       -fno-exceptions -fno-rtti
