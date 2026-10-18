@@ -1977,8 +1977,26 @@ typedef XP_SLIST_HEADER *PSLIST_HEADER_T;
 /* security descriptors: opaque here; the RTL only manipulates pointers */
 typedef void *PSECURITY_DESCRIPTOR, *PACL, *PSID;
 
-/* process/loader environment, opaque pointers */
-typedef void *PPEB, *PLDR_DATA_TABLE_ENTRY;
+/* Minimal PEB: only the fields the RTL touches, in the order the tree's
+   public/sdk/inc/pebteb.h declares them. Fields before FastPebLock are not
+   used by the RTL, so they are collapsed into padding of the right size. */
+typedef struct _XP_PEB {
+    unsigned char Reserved1[0x18];           /* up to ImageBaseAddress */
+    void *ImageBaseAddress;
+    void *Ldr;
+    void *ProcessParameters;
+    void *SubSystemData;
+    void *ProcessHeap;
+    void *FastPebLock;                       /* PRTL_CRITICAL_SECTION */
+    void *FastPebLockRoutine;
+    void *FastPebUnlockRoutine;
+} XP_PEB, *PPEB;
+typedef void *PLDR_DATA_TABLE_ENTRY;
+
+
+extern XP_PEB XpPeb;
+static __inline__ PPEB NtCurrentPeb_(void) { return &XpPeb; }
+#define NtCurrentPeb NtCurrentPeb_
 
 #define PAGE_SIZE 0x1000
 #define PAGE_SHIFT 12
