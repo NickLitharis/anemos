@@ -2337,4 +2337,47 @@ static __inline__ BOOLEAN RtlEqualMemory(const void *a, const void *b, unsigned 
     return 1;
 }
 
+
+/* RTL_HASH flags + prototypes, verbatim from the tree's ntrtl.h */
+#define HASH_STRING_ALGORITHM_DEFAULT (0)
+#define HASH_STRING_ALGORITHM_X65599  (1)
+#define HASH_STRING_ALGORITHM_INVALID (0xffffffffL)
+NTSTATUS RtlHashUnicodeString(const UNICODE_STRING *String, BOOLEAN CaseInSensitive,
+                              ULONG HashAlgorithm, ULONG *HashValue);
+LONG RtlCompareUnicodeString(const UNICODE_STRING *a, const UNICODE_STRING *b,
+                             BOOLEAN CaseInSensitive);
+BOOLEAN RtlEqualUnicodeString(const UNICODE_STRING *a, const UNICODE_STRING *b,
+                              BOOLEAN CaseInSensitive);
+long RtlCompareUnicodeStringRaw(const UNICODE_STRING *a, const UNICODE_STRING *b, BOOLEAN ci);
+VOID RtlCopyUnicodeString(UNICODE_STRING *Dest, const UNICODE_STRING *Src);
+NTSTATUS RtlAppendUnicodeToString(UNICODE_STRING *Dest, const WCHAR *Src);
+NTSTATUS RtlAppendUnicodeStringToString(UNICODE_STRING *Dest, const UNICODE_STRING *Src);
+WCHAR RtlUpcaseUnicodeChar(WCHAR c);
+WCHAR RtlDowncaseUnicodeChar(WCHAR c);
+
+
+/* NLS_* case macros, transcribed from base/ntos/rtl/ntrtlp.h:239-265.
+   The non-ASCII branch needs the NLS 844 tables which a freestanding build
+   does not carry; those code points pass through unchanged. ASCII behaviour
+   is identical to XP. */
+#define NLS_UPCASE(wch) \
+    (((wch) < 'a') ? (wch) : (((wch) <= 'z') ? (wch) - ('a'-'A') : (wch)))
+#define NLS_DOWNCASE(wch) \
+    (((wch) < 'A') ? (wch) : (((wch) <= 'Z') ? (wch) + ('a'-'A') : (wch)))
+
+
+/* On x86 the razzle build gets RtlInitUnicodeString from an inline in the pch
+   chain (string.c only defines the out-of-line version for non-x86). Provide
+   the same semantics here. */
+static __inline__ void RtlInitUnicodeString(UNICODE_STRING *Dest, const WCHAR *Src) {
+    if (Src) {
+        unsigned long n = 0; while (Src[n]) n++;
+        Dest->Buffer = (WCHAR *)Src;
+        Dest->Length = (unsigned short)(n * 2);
+        Dest->MaximumLength = (unsigned short)(n * 2 + 2);
+    } else {
+        Dest->Buffer = 0; Dest->Length = 0; Dest->MaximumLength = 0;
+    }
+}
+
 #endif /* _XPKERNEL_H_ */
