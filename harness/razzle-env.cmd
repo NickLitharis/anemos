@@ -21,8 +21,8 @@ set _NT386TREE=W:\binaries.x86fre
 set BINPLACE_PLACEFILE_DEFAULT=W:\NT\public\sdk\lib\placefil.txt
 set BINPLACE_FLAGS=-xa
 set NO_BINPLACE=
-set BUILD_PATH=W:\NT\tools\x86\perl\bin;W:\NT\tools\x86;W:\NT\tools;C:\windows\system32;C:\windows
-set PATH=W:\NT\tools\x86\perl\bin;W:\NT\tools\x86;W:\NT\tools;%PATH%
+set BUILD_PATH=%XP_HARNESS_BIN%;W:\NT\tools\x86\perl\bin;W:\NT\tools\x86;W:\NT\tools;C:\windows\system32;C:\windows
+set PATH=%XP_HARNESS_BIN%;W:\NT\tools\x86\perl\bin;W:\NT\tools\x86;W:\NT\tools;%PATH%
 cd /d W:\NT\%1
 build %2 %3 %4 %5
 echo BUILD_RC=%ERRORLEVEL%

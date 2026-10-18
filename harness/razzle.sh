@@ -9,4 +9,5 @@ export WINEDEBUG=-all WINEPREFIX=${WINEPREFIX:-$HOME/.wine-xp}
 ln -sfn "$ROOT/Source/XPSP1" "$WINEPREFIX/dosdevices/w:"
 mkdir -p "$ROOT/Source/XPSP1/binaries.x86fre"
 dir=$1; shift
+export XP_HARNESS_BIN="$(winepath -w "$ROOT/harness/bin")"
 wine cmd /c "$(winepath -w "$ROOT/harness/razzle-env.cmd")" "$dir" "${@:--cZ}" 2>&1 | tr -d '\r'

@@ -164,3 +164,37 @@ Restore after any build:
 git checkout -- Source/XPSP1/NT/public/
 git status --porcelain -uall Source/ | grep -v '^??'   # must be empty
 ```
+
+---
+
+## COMPLETE: every kernel subsystem builds, every architecture variant
+
+59 libraries across all 23 building subsystems. The multi-arch variants matter:
+`init/mp` needs `ke/mp`, `init/pae` needs `ke/pae`. Build order per variant:
+
+```sh
+for v in mp pae paemp; do harness/razzle.sh "base\ntos\ke\$v" -Z; done
+for v in mp pae paemp; do harness/razzle.sh "base\ntos\init\$v" -Z; done
+```
+
+| subsystem | libs | notes |
+|---|---:|---|
+| rtl | 1 | ntosrtl.lib |
+| ke | 4 | up, mp, pae, paemp |
+| ex | 1 | |
+| mm | 1 | |
+| config | 3 | config + bconfig |
+| kd64 | 4 | up, mp, pae, paemp |
+| ob, se, po, ps, cache, lpc, dbgk, raw, fstub, fsrtl, vdm, verifier, perf | 2 each | up + mp |
+| arb | 4 | arbiter, halarbiter, up, mp |
+| io | 7 | io, iomgr, pnpmgr, CSQ per variant |
+| wmi | 3 | wmi + wmiTrace |
+| **init** | **5** | up, mp, pae, paemp — all built |
+
+`nls` is `TARGETTYPE=NOTARGET`: it exists only to generate `bugcodes.h` /
+`MSG00001.bin`, which it does. That is a success, not a missing library.
+
+### The mc fix
+
+`harness/bin/mc.cmd` now filters the `-A`/`-v` flags that the build passes but
+`base/mvdm/tools/mc.exe` does not accept under Wine.
