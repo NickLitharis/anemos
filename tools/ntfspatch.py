@@ -131,7 +131,11 @@ class NTFS:
         ir = self._attr(rec, 0x90)
         if ir is not None:
             val = self.data(ir)
-            ent_off = struct.unpack('<I', val[0:4])[0]
+            # the node header sits at 0x10 and its offset is relative to itself;
+            # val[0:4] is the attribute type, not an offset — reading it as one
+            # made every directory small enough to keep its entries resident
+            # (a fresh one, e.g. \conftest) list as empty.
+            ent_off = struct.unpack('<I', val[16:20])[0] + 16
             names += self._parse_index(val[ent_off:])
         ia = self._attr(rec, 0xA0)
         if ia is not None:
