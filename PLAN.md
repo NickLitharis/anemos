@@ -38,10 +38,10 @@ Not a roadmap — measured state as of today.
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
-| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64}/` — first three units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
+| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64,crc32}/` — first four units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 + zlib vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
 
 The method is proven, and the first Anemos code is written and gated
-(`anemos/md5/`, `anemos/sha1/`, `anemos/base64/`; shared status codes in
+(`anemos/{md5,sha1,base64,crc32}/`; shared status codes in
 `anemos/include/`). Everything from here is substitution work behind stable
 interfaces.
 
@@ -152,11 +152,13 @@ nobody has legally rewritten.
    `xp.vmdk` vs `xp-pristine.vmdk`, and fails when it should.
 3. **P1 — first replacement**, to exercise the runner on something real: CRC-32 and
    friends are host-side work, but the first subject swap (`ntoskrnl.exe` or a library)
-   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1 and Base64
-   landed (`anemos/{md5,sha1,base64}/`), gated on published vectors + negative
-   controls; XP's base64 ABI is `crypt32!CryptBinaryToString/CryptStringToBinary`
-   (advapi32 has neither on this build); next the `STATUS→DOS` map and NLS tables,
-   then CRC-32.
+   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1, Base64 and
+   CRC-32 landed (`anemos/{md5,sha1,base64,crc32}/`), gated on published vectors +
+   negative controls; XP's base64 ABI is `crypt32!CryptBinaryToString/CryptStringToBinary`
+   (advapi32 has neither on this build); XP exports no CRC-32, so that unit is
+   vector-only. Next: the `STATUS→DOS` map — XP-side probe of
+   `ntdll!RtlNtStatusToDosError` across all statuses, then our table gated on the
+   full dump; then NLS tables.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
