@@ -1,0 +1,15 @@
+init.status=0 OK
+subAuthCount=2 OK
+length=10 OK
+lengthRequired=10 OK
+valid=1 OK
+sub0=20 OK
+sub1=220 OK
+copy.status=0 OK
+copy.equal=1 OK
+diffAuthority=0 OK
+allGranted=1 OK
+allNotGranted=0 OK
+anyGranted=0 OK
+anyGranted2=1 OK
+XP-MODERNIZATION-V1.4: XP sertl.c SID ROUTINES VERIFIED

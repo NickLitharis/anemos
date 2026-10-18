@@ -1,0 +1,6 @@
+e1=25B0 e2=25CC
+about AB
+insert AB=1 OK
+e1=25B0 e2=25CC
+about AB
+about ABC

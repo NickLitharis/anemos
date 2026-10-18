@@ -1,0 +1,13 @@
+IntegerToUnicode(255,10)=0 OK
+len=6 OK
+buf0=32 OK
+buf2=35 OK
+IntegerToUnicode(DEADBEEF,16)=0 OK
+hexlen=10 OK
+hex0=44 OK
+hex3=44 OK
+hex4=42 OK
+hex7=46 OK
+UnicodeToInteger=0 OK
+parsed=4D2 OK
+XP-MODERNIZATION-V0.6: XP cnvint.c EXECUTED AND VERIFIED

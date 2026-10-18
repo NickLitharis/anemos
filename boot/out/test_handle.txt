@@ -1,0 +1,14 @@
+maxHandles=8 OK
+entrySize=4 OK
+freeList.initial=0 OK
+alloc1.nonnull=1 OK
+alloc1.index=0 OK
+alloc1.flagcleared=0 OK
+alloc1.valid=1 OK
+alloc2.index=1 OK
+alloc2.valid=1 OK
+free1=1 OK
+free1.valid=0 OK
+free2.valid=1 OK
+validIndex0=0 OK
+XP-MODERNIZATION-V1.1: XP handle.c EXECUTED AND VERIFIED

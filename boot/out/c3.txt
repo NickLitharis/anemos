@@ -1,0 +1,4 @@
+about AB
+insert AB=1 OK
+about AB
+about ABC

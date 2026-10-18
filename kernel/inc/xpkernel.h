@@ -2273,4 +2273,68 @@ BOOLEAN RtlDosPathNameToNtPathName_U(const unsigned short *DosName,
 
 static const UNICODE_STRING RtlDosPathSeperatorsString = { 4, 4, L"\\/" };
 static const UNICODE_STRING RtlAlternateDosPathSeperatorString = { 2, 2, L"/" };
+
+/* SID structures, verbatim from the tree's public/sdk/inc/winnt.h */
+#ifndef SID_IDENTIFIER_AUTHORITY_DEFINED
+#define SID_IDENTIFIER_AUTHORITY_DEFINED
+typedef struct _SID_IDENTIFIER_AUTHORITY { unsigned char Value[6]; }
+    SID_IDENTIFIER_AUTHORITY, *PSID_IDENTIFIER_AUTHORITY;
+#endif
+#ifndef SID_DEFINED
+#define SID_DEFINED
+typedef struct _SID {
+    unsigned char Revision;
+    unsigned char SubAuthorityCount;
+    SID_IDENTIFIER_AUTHORITY IdentifierAuthority;
+    unsigned long SubAuthority[1];
+} SID, *PISID;
+#endif
+typedef void *PSID;
+typedef unsigned long ACCESS_MASK, *PACCESS_MASK;
+
+#define SID_REVISION 1
+#define SID_MAX_SUB_AUTHORITIES 15
+#define SECURITY_MAX_SID_SIZE 68
+#define ANYSIZE_ARRAY 1
+#define SECURITY_NULL_SID_AUTHORITY        {0,0,0,0,0,0}
+#define SECURITY_WORLD_SID_AUTHORITY       {0,0,0,0,0,1}
+#define SECURITY_LOCAL_SID_AUTHORITY       {0,0,0,0,0,2}
+#define SECURITY_CREATOR_SID_AUTHORITY     {0,0,0,0,0,3}
+#define SECURITY_NT_AUTHORITY              {0,0,0,0,0,5}
+
+
+/* SID helpers declared in the tree's ntrtl.h; definitions are in sertl.c.
+   Needed as prototypes so sertl's own bodies can call each other. */
+unsigned char *RtlSubAuthorityCountSid(PSID Sid);
+unsigned long *RtlSubAuthoritySid(PSID Sid, unsigned long SubAuthority);
+PSID_IDENTIFIER_AUTHORITY RtlIdentifierAuthoritySid(PSID Sid);
+unsigned long RtlLengthSid(PSID Sid);
+unsigned long RtlLengthRequiredSid(unsigned long SubAuthorityCount);
+NTSTATUS RtlCopySid(unsigned long DestinationSidLength, PSID DestinationSid, PSID SourceSid);
+NTSTATUS RtlInitializeSid(PSID Sid, PSID_IDENTIFIER_AUTHORITY IdentifierAuthority,
+                          unsigned char SubAuthorityCount);
+BOOLEAN RtlValidSid(PSID Sid);
+BOOLEAN RtlEqualSid(PSID Sid1, PSID Sid2);
+BOOLEAN RtlEqualPrefixSid(PSID Sid1, PSID Sid2);
+BOOLEAN RtlAreAllAccessesGranted(ACCESS_MASK GrantedAccess, ACCESS_MASK DesiredAccess);
+BOOLEAN RtlAreAnyAccessesGranted(ACCESS_MASK GrantedAccess, ACCESS_MASK DesiredAccess);
+
+
+/* helpers sertl.c uses; both are inline/macro in the tree, so reproduce them
+   here rather than linking them.
+     SeLengthSid        -> base/ntos/inc/se.h:559 (macro)
+     RtlpSubAuthoritySid-> public/internal/base/inc/sertlp.h:300 (FORCEINLINE)
+     RtlEqualMemory     -> standard NT memory compare
+*/
+#define SeLengthSid(Sid) (8 + (4 * ((SID *)(Sid))->SubAuthorityCount))
+static __inline__ unsigned long *RtlpSubAuthoritySid(PSID Sid, unsigned long SubAuthority) {
+    PISID s = (PISID)Sid;
+    return (unsigned long *)((unsigned char *)s->SubAuthority + (sizeof(unsigned long) * SubAuthority));
+}
+static __inline__ BOOLEAN RtlEqualMemory(const void *a, const void *b, unsigned long n) {
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    while (n--) if (*x++ != *y++) return 0;
+    return 1;
+}
+
 #endif /* _XPKERNEL_H_ */

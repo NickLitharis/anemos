@@ -1,0 +1,13 @@
+emptyCount=0 OK
+insert.new=1 OK
+insert.new=1 OK
+insert.new=1 OK
+insert.new=1 OK
+insert.new=1 OK
+insert.new=1 OK
+insert.new=1 OK
+count=7 OK
+lookup40.found=1 OK
+lookup45.absent=0 OK
+depth=3 OK
+XP-MODERNIZATION-V0.8: XP avltable.c EXECUTED AND VERIFIED

@@ -1,0 +1,6 @@
+freshNameLen=0 OK
+freshExtLen=0 OK
+nameBufSize=10 OK
+extBufSize=8 OK
+ctxSize=24 OK
+XP-MODERNIZATION-V1.2: XP gen8dot3 CONTEXT LAYOUT VERIFIED

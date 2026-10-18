@@ -1,0 +1,6 @@
+env.vars=2 OK
+env.terminator=1 OK
+peb.size=3C OK
+peb.fastPebLock.off=2C OK
+peb.envCount.off=38 OK
+XP-MODERNIZATION-V1.3: XP environ/mrcf LAYOUTS VERIFIED
