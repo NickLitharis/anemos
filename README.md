@@ -23,12 +23,13 @@ one, and a measured map of what stands in the way.
 
 ## Read this first
 
+- **`PLAN.md`** — the authoritative plan. Everything else is reference.
 - `SCOPE.md` — exactly which files are ours, and which are not
 - `NOTICE.md` — the clean-room policy, and why it is strict
-- `docs/OPEN-REPLACEMENT-PLAN.md` — the plan to replace Microsoft's subsystems
-- `docs/TASK-REQUIREMENTS.md` — what tooling and skills this needs
-- `docs/X64-STATUS.md` — measured x64 build status
-- `MODERNIZATION_PLAN.md` — milestones and gates
+- `docs/OS-CODING-RULES.md` — 17 rules, each naming the failure it prevents
+- `docs/TOOLCHAIN-POLICY.md` — clang/lld 23.1.3, pinned
+- `docs/SIZE-POLICY.md` — measured size levers and budgets
+- `docs/X64-STATUS.md` — measured x64 build status: 21/23 subsystems
 
 ## The rules this project follows
 
