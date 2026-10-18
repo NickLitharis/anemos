@@ -23,7 +23,7 @@ This plan is ordered by *dependency*, not by ambition. Each milestone has a
 | Tracked files | 277,865 (all present on disk, `git status` clean) |
 | LOC by language | C 24.0M · C++ 21.0M · headers 12.6M · `.cxx` 7.3M · asm 0.93M · rc 0.75M · idl 0.72M |
 | Kernel | `base/ntos` — 1,715 files (ke 283, rtl 204, config 162, io 129, mm 105, ex 85, init 79, se 68) |
-| HAL | `base/hals` — halx86, halmps, halacpi, halsp, **halia64**, x86new. **No halx64.** |
+| HAL | `base/hals` — halx86, halmps, halacpi, halsp, halia64, x86new. **x64 HAL exists** but is unbuilt: `halacpi/amd64` (30 files), `x86new/amd64` (24 declared). |
 | win32k | `windows/core` — 4,168 files (ntuser, ntgdi, ntcon, kmode, dxkernel) |
 | Shell | `shell` — 14,763 files (explorer, shell32, themes) |
 | User DLLs | `base/win32/client` (kernel32), `base/win32/server` (user32), `windows/core/ntgdi/client` (gdi32) |
@@ -38,9 +38,12 @@ This plan is ordered by *dependency*, not by ambition. Each milestone has a
 - `base/win32/client/basedll.h` (1,171 lines) → kernel32 private surface
 - win32k: monolithic `precomp.h`
 
-### 1.3 MSVC-only constructs (the M0 blockers, counted by file)
+### 1.3 MSVC-only constructs (counted by file)
 
 `__declspec` 2,099 · `__try`/SEH 2,112 · `__except` 1,520 · `__stdcall` 1,707 · `_asm` 602 · `__fastcall` 209
+
+These were expected to be M0 blockers. They were not: the tree's own MSVC handles them,
+so they are only a concern if the toolchain is ever replaced (see Part 4, item 5).
 
 ### 1.4 Build system reality
 
@@ -58,7 +61,10 @@ build-manager client, **not** a compiler script.
 | **In-tree MSVC toolchain** | `NT/tools/x86/` | ✅ `cl.exe c1.dll c1xx.dll link.exe nmake.exe ml.exe rc.exe build.exe` |
 | mingw-w64 | `~/.local/opt/llvm-mingw-20261006-msvcrt` | ✅ for user-mode probes |
 | REA + Ghidra 12.1.4 | `~/ghidra/`, MCP in `~/.pi/agent/mcp.json` | ✅ 209 tools |
-| `harness/razzle.sh` | `harness/` | ✅ drives razzle under Wine |
+| `harness/razzle.sh` | `harness/` | ✅ drives razzle under Wine, x86 |
+| `harness/razzle-amd64.sh` | `harness/` | ✅ same, with `AMD64=1` and the x64 cross-compiler |
+| **In-tree AMD64 toolchain** | `NT/tools/win64/x86/amd64/` | ✅ `cl.exe c1.dll c2.dll link.exe lib.exe ml64.exe` — PE32-hosted, runs under Wine32 |
+| `tools/ntfspatch.py` | `tools/` | ✅ host-side VMDK/NTFS patcher, no root |
 | `legacy-nt-modernization` skill | `~/.pi/agent/skills/` | ✅ loaded (census baked in) |
 
 ### 1.5a Build capability (measured, not assumed)
@@ -177,7 +183,9 @@ declares 24. Neither HAL has been built yet — that is the next measurement, no
 **Explicitly out of scope at M1:** win32k x64, shell x64, booting. Booting x64 additionally
 needs an entirely separate boot path (`ntldr` → x64 osloader, x64 HAL, x64 drivers).
 
-**Risk:** very high. **This is a multi-month milestone, not a sprint.**
+**Risk:** high, but no longer "very high". The toolchain works and 21/23 subsystems already
+compile; what remains is reconstructing 48 functions and an unbuilt HAL. That is real work
+with a known shape, not open-ended research.
 
 ---
 
@@ -259,8 +267,8 @@ M0 build+boot ✅
 
 ## Part 4 — Decisions already settled
 
-1. ~~Goal split~~ — accepted: appearance = free; perf = achievable; x64 = port, not a flag;
-   "de-Microsoft" = subsystem replacement.
+1. ~~Goal split~~ — accepted: appearance = free; perf = achievable; ~~x64 = port, not a flag~~
+   (**wrong** — x64 *is* a build flag; see M1); "de-Microsoft" = subsystem replacement.
 2. ~~Probe target~~ — moot. The tree's own toolchain answers M0 directly.
 3. ~~Toolchain for M0~~ — **the tree's own MSVC under Wine**, not mingw. This kills the
    `C_ASSERT`/struct-size blocker by construction.
