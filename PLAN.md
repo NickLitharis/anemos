@@ -37,7 +37,7 @@ Not a roadmap — measured state as of today.
 | Legal boundary | ✅ | `LICENSE`, `NOTICE.md`, `SCOPE.md` |
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ❌ **not built** | — |
-| **ABI compatibility proof** | ❌ **not done** | — |
+| **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
 | **Any Anemos code** | ❌ **none** | — |
 
 **There is no Anemos yet.** There is a proven method for producing and verifying one.
@@ -49,7 +49,12 @@ Not a roadmap — measured state as of today.
 Everything else waits behind these. Both are small, both are cheap, and skipping either
 means building on sand.
 
-### G1 — ABI compatibility proof  *(~1 day)*
+### G1 — ABI compatibility proof  *(~1 day)* — **PASSED 2026-10-18**
+
+**Status:** 15/15 checks, clang 23.1.3 vs the tree's MSVC 13.00, i386. Layout,
+decoration, cross-calls in both directions, and a clang object linked against real
+`ntosrtl.lib` — plus a negative control on the diff. See `docs/G1-ABI-PROOF.md`,
+reproduce with `tools/abi/run.sh`. AMD64 is not covered by this proof.
 
 **Question:** do clang 23 and the tree's MSVC 13.00 agree on struct layout, calling
 conventions and name mangling?
@@ -132,7 +137,7 @@ nobody has legally rewritten.
 
 ## Next three actions
 
-1. **G1 — ABI proof.** One day. Say go and I start.
+1. ~~**G1 — ABI proof.**~~ **Passed 2026-10-18** (`docs/G1-ABI-PROOF.md`).
 2. **G2 — conformance runner skeleton**, validated on the two kernels we already have.
 3. **P1 — first replacement**, to exercise the runner on something real.
 
