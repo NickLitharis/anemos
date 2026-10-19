@@ -301,6 +301,13 @@ def run_probe(workdir: Path, extra: list[str] | None = None,
             return False
         time.sleep(3.0 if "driverquery" in line else 2.0)
 
+    # After the extra (probe) lines: a screenshot, so a focus thief that
+    # eats keystrokes mid-line is visible on the host afterwards.
+    if extra:
+        time.sleep(1.0)
+        capture(workdir / "screen-probe.bmp")
+        log("  captured screen-probe.bmp (post extra commands)")
+
     time.sleep(settle)      # let the guest finish writing before we cut power
     return True
 
@@ -394,9 +401,12 @@ def extract_guest_files(disk: Path, workdir: Path,
                  f"\\conftest\\{name}", str(out)], timeout=180)
         if r.returncode == 0 and out.exists():
             data = out.read_bytes()
-            # the guest writes through the FS; trailing slack is allocation, not content
-            data = data.rstrip(b"\x00")
-            out.write_bytes(data)
+            # the guest writes through the FS; trailing slack is allocation, not
+            # content. Text only: a binary dump's own bytes may end in 0x00 and
+            # rstrip would silently corrupt it.
+            if not name.endswith(".bin"):
+                data = data.rstrip(b"\x00")
+                out.write_bytes(data)
             hashes[name] = hashlib.sha256(data).hexdigest()
         else:
             hashes[name] = "MISSING"
@@ -504,6 +514,146 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0 if run_probe(workdir) else 1
 
 
+def run_dialog(text: str, pause: float = 2.0) -> bool:
+    """Type `text` into the Win+R Run box and execute it.
+
+    The Run box is shell-owned and modal: its edit control takes the keyboard
+    no matter what has stolen focus from the desktop — measured twice, the
+    console channel lost focus ~40 s after the desktop appeared and silently
+    ate the rest of the typed probe line. No ':' or '%' travels: `write`
+    resolves in the box's own default directory (system32) to
+    system32\\write.exe.
+
+    Characters type reliably at any time; Enter was measured working until
+    ~35 s after the desktop and dead after ~40 s, so every use of this is
+    retried and verified in pixels by the caller — never trusted.
+    """
+    for tokens, wait in ((["key", "super-r"], 2.0),
+                         (["type", text], 1.0),
+                         (["key", "enter"], pause)):
+        if not send(tokens):
+            return False
+        time.sleep(wait)
+    return True
+
+
+def console_dark(bmp: Path) -> bool:
+    """True if a large near-black area sits on screen — an unstyled console.
+
+    The XP desktop (Bliss wallpaper, blue/green) and the taskbar contain no
+    near-black regions, and the red `color 4f` console of open_cmd is not
+    near-black either, so darkness is an unambiguous "a console window is
+    open" signal. Used to prove the probe both launched and exited: the
+    probe's console appears on launch and closes itself when the probe is
+    done, which is what makes a later hard power cut safe.
+    """
+    try:
+        w, h, px = read_bmp(bmp)
+    except Exception:
+        return False
+    dark = 0
+    for y in range(80, min(h - 80, 700), 4):
+        row = px[y * w * 3:(y + 1) * w * 3]
+        for x in range(80, min(w - 80, 940), 4):
+            r, g, b = row[x * 3], row[x * 3 + 1], row[x * 3 + 2]
+            if r < 40 and g < 40 and b < 40:
+                dark += 1
+    return dark > 1500
+
+
+def cmd_extract(args: argparse.Namespace) -> int:
+    """Boot, launch the in-guest probe through the Run box, collect its file.
+
+    The STATUS->DOS extraction path: no console is opened at all, so the
+    probe's execution cannot be lost to a focus thief mid-probe-line. The
+    probe needs no arguments and no console — `write` (a system32 exe we
+    temporarily swapped host-side) writes \\conftest\\<collect> and exits.
+    """
+    disk = Path(args.disk).expanduser().resolve()
+    if not disk.exists():
+        log(f"no such disk: {disk}")
+        return 2
+    if disk.parent != VMS_DIR:
+        log(f"refusing: {disk} is not next to {VMX}")
+        return 2
+    workdir = OUT_ROOT / args.tag
+    if workdir.exists() and any(workdir.iterdir()):
+        log(f"output dir {workdir} is not empty; use a fresh tag")
+        return 2
+    workdir.mkdir(parents=True, exist_ok=True)
+    log(f"tag={args.tag} disk={disk.name} (extract mode)")
+
+    busy = require_exclusive()
+    if busy:
+        log(busy)
+        return 2
+
+    reached = False
+    probe_ok = False
+    hashes: dict[str, str] = {}
+    try:
+        stop_vm(VMX, "hard")
+        set_disk(disk.name)
+        if not start_vm():
+            return 2
+        reached, seconds = wait_for_desktop(workdir, timeout=args.timeout)
+        log(f"desktop reached: {reached} ({seconds:.0f}s)")
+        if reached:
+            # No settle sleep before launch: Enter was measured alive ~25 s
+            # after the desktop and dead after ~40 s, so launch immediately
+            # and let the pixels — not trust — decide whether it worked.
+            log("launching probe via the Run box (write), pixel-verified")
+            probe_ok = False
+            for attempt in range(1, 6):
+                if not run_dialog("write", pause=2.0):
+                    break
+                time.sleep(4.0)
+                shot = workdir / f"screen-launch-{attempt}.bmp"
+                if capture(shot) and console_dark(shot):
+                    log(f"  probe console is up (attempt {attempt})")
+                    probe_ok = True
+                    break
+                log(f"  attempt {attempt}: no console; retrying")
+                send(["key", "esc"])       # dismiss the Run box if it stayed open
+                time.sleep(1.0)
+            if probe_ok:
+                # Poll until the probe's console closes itself: that is the
+                # guest's own proof the probe exited, flushed and closed the
+                # dump — only then is a hard power cut later harmless.
+                end = time.time() + args.settle
+                finished = False
+                while time.time() < end:
+                    time.sleep(20.0)
+                    shot = workdir / "screen-settle.bmp"
+                    if capture(shot) and not console_dark(shot):
+                        log("  probe console gone: probe exited cleanly")
+                        finished = True
+                        break
+                if not finished:
+                    log(f"  settle {args.settle}s expired with the probe still "
+                        "running; any dump will be partial")
+            capture(workdir / "screen-final.bmp", delay=1.0)
+        log("shutting down")
+        shutdown_vm(grace=args.shutdown_grace)
+        collect = args.collect or ["sdos.bin"]
+        hashes = extract_guest_files(disk, workdir, collect) if probe_ok else {}
+    finally:
+        stop_vm(VMX, "hard")
+        set_disk(DEFAULT_DISK)      # leave the tree's VM exactly as we found it
+
+    write_meta(workdir, {
+        "disk": str(disk),
+        "tag": args.tag,
+        "mode": "extract",
+        "boot_reached_desktop": reached,
+        "probe_launched": probe_ok,
+        "guest_files": hashes,
+        "collect": args.collect or ["sdos.bin"],
+    })
+    log(f"observations in {workdir}")
+    return 0 if reached else 1
+
+
 def screen_region_hash(bmp: Path, rect: tuple[int, ...]) -> str | None:
     try:
         w, h, px = read_bmp(bmp)
@@ -592,6 +742,20 @@ def main() -> int:
     p_probe = sub.add_parser("probe", help="drive the probe at an already-booted VM")
     p_probe.add_argument("--tag", required=True)
     p_probe.set_defaults(func=cmd_probe)
+
+    p_ext = sub.add_parser("extract", help="boot, launch the in-guest probe via "
+                                           "the Run box, collect its output file")
+    p_ext.add_argument("--disk", required=True)
+    p_ext.add_argument("--tag", required=True)
+    p_ext.add_argument("--timeout", type=int, default=VNC_TIMEOUT)
+    p_ext.add_argument("--settle", type=int, default=900,
+                       help="seconds to let the probe run in-guest (default 900)")
+    p_ext.add_argument("--collect", action="append", default=None,
+                       metavar="NAME", help="file to extract from \\conftest")
+    p_ext.add_argument("--shutdown-grace", type=int, default=2400,
+                       help="seconds to wait for the guest to power itself off "
+                            "before ACPI/hard stop (default 2400)")
+    p_ext.set_defaults(func=cmd_extract)
 
     args = ap.parse_args()
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
