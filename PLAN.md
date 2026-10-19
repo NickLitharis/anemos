@@ -38,10 +38,10 @@ Not a roadmap — measured state as of today.
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
-| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64,crc32}/` — first four units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 + zlib vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
+| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64,crc32,nls}/` — five units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
 
 The method is proven, and the first Anemos code is written and gated
-(`anemos/{md5,sha1,base64,crc32}/`; shared status codes in
+(`anemos/{md5,sha1,base64,crc32,nls}/`; shared status codes in
 `anemos/include/`). Everything from here is substitution work behind stable
 interfaces.
 
@@ -152,13 +152,18 @@ nobody has legally rewritten.
    `xp.vmdk` vs `xp-pristine.vmdk`, and fails when it should.
 3. **P1 — first replacement**, to exercise the runner on something real: CRC-32 and
    friends are host-side work, but the first subject swap (`ntoskrnl.exe` or a library)
-   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1, Base64 and
-   CRC-32 landed (`anemos/{md5,sha1,base64,crc32}/`), gated on published vectors +
-   negative controls; XP's base64 ABI is `crypt32!CryptBinaryToString/CryptStringToBinary`
-   (advapi32 has neither on this build); XP exports no CRC-32, so that unit is
-   vector-only. Next: the `STATUS→DOS` map — XP-side probe of
-   `ntdll!RtlNtStatusToDosError` across all statuses, then our table gated on the
-   full dump; then NLS tables.
+   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1, Base64,
+   CRC-32 and NLS tables landed (`anemos/{md5,sha1,base64,crc32,nls}/`), gated on
+   published vectors + negative controls; XP's base64 ABI is
+   `crypt32!CryptBinaryToString/CryptStringToBinary` (advapi32 has neither on this
+   build); XP exports no CRC-32, so that unit is vector-only. The `STATUS→DOS` map
+   (item 6 of 6) had its raw-dump extraction attempt: the probe, toolchain and
+   clean-room method are built and verified, and one genuine XP run yielded a
+   byte-perfect prefix (statuses 0–0x2028669D), but the full dump is
+   **structurally infeasible** (the customer region is near-injective: >6 GB of
+   triples, and the run cap expires before ever reaching the 0xC0000000+ anchor
+   region) — see `docs/P1-STATUSDOS.md`. Rework planned: a model-verification
+   probe that emits mismatches only (KB-scale output).
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
