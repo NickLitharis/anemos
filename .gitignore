@@ -14,3 +14,6 @@ anemos/*/out/
 
 # The XP source lives outside this repository; this is a convenience symlink.
 /Source
+
+# Command Code session metadata
+.commandcode/
