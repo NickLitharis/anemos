@@ -36,8 +36,10 @@ git push origin phase-p1           # once a remote exists
 git push --tags                    # publish all phase tags
 ```
 
-This repository currently has **no remote**; the tags are local. Add one and
-push the tags when the destination is decided.
+The public remote is `origin`:
+`https://github.com/NickLitharis/anemos`. The phase tags are already published
+there. Push a new tag with `git push origin <tag>`, or republish all of them
+with `git push --tags`.
 
 Phases interleave in history: a tag marks **when the gate passed**, not a tree
 containing only that phase's code. For example, `phase-p0` already contains some
