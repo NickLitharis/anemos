@@ -43,6 +43,7 @@ Not a roadmap — measured state as of today.
 | **Anemos code — P2 DNS client** | ✅ | `anemos/dns/dns_client.*` — response correlation, RCODE/TC, case-insensitive matching, bounded CNAME chains; 2,040-case differential corpus, 24/24 with the codec (`docs/P2-DNS-CLIENT.md`) |
 | **Anemos code — P2 DHCP codec** | ✅ | `anemos/dhcp/` — RFC 2131/2132 parse/serialise/builder, exact round-trip for every accepted message, 4,095-case differential corpus (`docs/P2-DHCP.md`) |
 | **Anemos code — P2 DHCP client** | ✅ | `anemos/dhcp/dhcp_client.*` — socket-free state machine, T1/T2/expiry timers, scenario suite + 6-trace/130-operation differential, 24/24 with the codec (`docs/P2-DHCP-CLIENT.md`) |
+| **P3 groundwork — crypto engine** | ✅ | OpenSSL 3.5.7 cross-built for i686 Windows; SHA-1/256/512, HMAC, AES-CBC/GCM and RSA KATs pass as a PE under Wine, 6/6 (`docs/P3-CRYPTO.md`) |
 
 The method is proven, P1 is written and gated
 (`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
@@ -108,7 +109,7 @@ Each phase begins only when the previous gate passes.
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
-| **P3** | Crypto: an OpenSSL-backed CSP in the empty `rsaenh` slot | XP's own crypto self-tests pass; known-answer tests for every exposed algorithm |
+| **P3** | Crypto: OpenSSL engine (**done**) then a CSP in the empty `rsaenh` slot | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
 
@@ -196,9 +197,13 @@ nobody has legally rewritten.
    client complete 2026-10-20.** `anemos/dns/dns_client.*` — case-insensitive
    matching, RCODE/TC mapping, bounded CNAME chains, and 2,040 differential
    cases; 24/24 with the codec (`docs/P2-DNS-CLIENT.md`).
-   **P2 is complete.** Next: P3 — the OpenSSL-backed CSP in the `rsaenh` slot,
-   or first wiring the client units to XP's socket path in P4 for behavioural
-   evidence.
+   **P2 is complete.**
+8. **P3.1 — the CSP skeleton**, next: export all 23 required + 2 optional
+   `CP*` entry points, with a host harness that `LoadLibrary`s the DLL and
+   calls each one. The engine is proven (`anemos/crypto/`, 6/6). Two measured
+   constraints are recorded in `docs/P3-CRYPTO.md`: XP verifies provider
+   signatures before loading (so the SPI is proved directly first), and
+   OpenSSL's Windows RAND must not re-enter the CSP.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
@@ -222,4 +227,5 @@ interfaces do not move.
 | `docs/P2-DNS-CLIENT.md` | DNS client: matching, CNAME chains, status semantics, the corpus gate |
 | `docs/P2-DHCP.md` | DHCP codec: exact round-trip, option model, the differential gate, limits |
 | `docs/P2-DHCP-CLIENT.md` | DHCP client: states, timers, determinism, the trace gate, limits |
+| `docs/P3-CRYPTO.md` | Crypto engine evidence, CSP ABI, the signature constraint, the RAND hazard |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
