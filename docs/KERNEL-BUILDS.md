@@ -3,6 +3,10 @@
 **`ntoskrnl.exe` — 1,918,976 bytes, PE32 native i386 — produced by the tree's own
 toolchain from the tree's own sources.**
 
+> **Artifact note:** the built and shipped kernels referenced here are kept
+> locally under `~/anemos-private/docs/kernel-build/`. They are Microsoft-derived
+> and are not part of this repository.
+
 ## The linker recipe
 
 The link step is *not* missing from the leak. Razzle performs it inside
@@ -73,6 +77,6 @@ no debug symbol tables), not because code is missing from the export contract.
 
 ## Evidence kept
 
-- `docs/kernel-build/ntoskrnl-built.exe` — our build
-- `docs/kernel-build/ntoskrnl-shipped.exe` — Microsoft's, from the ISO
-- `docs/kernel-build/link.log` — the razzle link output
+- `~/anemos-private/docs/kernel-build/ntoskrnl-built.exe` — our build
+- `~/anemos-private/docs/kernel-build/ntoskrnl-shipped.exe` — Microsoft's, from the ISO
+- `~/anemos-private/docs/kernel-build/link.log` — the razzle link output

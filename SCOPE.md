@@ -30,9 +30,10 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 - `boot/README.md`
 
 **Documentation (`docs/`, root)**
-- all `docs/*.md`, `docs/codemap/*` (generated index of the tree)
-- `docs/m0/`, `docs/kernel-build/*.log`
-- `README.md`, `STATE.md`, `MODERNIZATION_PLAN.md`, `STANDING_INSTRUCTIONS.md`
+- all `docs/*.md`
+- `docs/m0/` (except `EvcrtMsg.h.generated`, generated from Microsoft's message file)
+- `README.md`, `PHASES.md`, `STATE.md`, `MODERNIZATION_PLAN.md`,
+  `STANDING_INSTRUCTIONS.md`
 - `docs/OPEN-REPLACEMENT-PLAN.md`, `docs/TASK-REQUIREMENTS.md`
 
 ## NOT licensed by us — third-party material
@@ -56,19 +57,25 @@ release.
 
 ## NOT licensed by us — built from Microsoft's source
 
-These are compiled artifacts. The build is ours; the code inside is Microsoft's.
+These are compiled or generated artifacts. The build is ours; the code inside
+is Microsoft's.
 
 - `dist/kernel/ntoskrnl.exe`, `hal.dll`, `bootvid.dll`, `kdcom.dll`
 - `docs/kernel-build/ntoskrnl-built.exe`, `ntoskrnl-shipped.exe`
 - `docs/razzle-evidence/**/*.lib` and `*.log`
+- `docs/codemap/` — generated map of Microsoft's source tree
+- `tags` — ctags index of Microsoft's source tree
+- `docs/m0/EvcrtMsg.h.generated`
 - anything produced under `Source/XPSP1/binaries.*/`
 
-They exist so the boot result can be independently verified. They are **not** MIT
-and must not be redistributed as part of a licensed release.
+They are **not** part of this repository or its history. Local copies are kept
+outside it in `~/anemos-private/` for verification and local tooling. They are
+**not** MIT and must not be redistributed as part of a licensed release.
 
 ## Not source at all
 
-- `tags`, `*.pyc`, `boot/out/`, `kernel/out/` — generated, safe to delete
+- `*.pyc`, `boot/out/`, `kernel/out/` — generated, safe to delete
+- `tags` — kept in `~/anemos-private/`, gitignored here
 
 ---
 

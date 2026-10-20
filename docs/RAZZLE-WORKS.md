@@ -77,10 +77,12 @@ The `@N` stdcall decoration is MSVC codegen, not a shim.
 - Build logs (`build.log`, `build.err`) and `obj/` output appear inside the tree.
   Remove them by exact path only.
 
-## Evidence kept in-repo
+## Evidence kept locally
 
-`docs/razzle-evidence/ntosrtl-build.log` — the full razzle log
-`docs/razzle-evidence/ntosrtl.lib` — the artifact itself
+`~/anemos-private/docs/razzle-evidence/ntosrtl-build.log` — the full razzle log
+`~/anemos-private/docs/razzle-evidence/ntosrtl.lib` — the artifact itself
+
+The evidence is Microsoft-derived and is not part of this repository.
 
 ---
 
