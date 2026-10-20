@@ -11,3 +11,6 @@ harness/conformance/out/
 __pycache__/
 
 anemos/*/out/
+
+# The XP source lives outside this repository; this is a convenience symlink.
+/Source
