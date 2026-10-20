@@ -566,8 +566,9 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
     The STATUS->DOS extraction path: no console is opened at all, so the
     probe's execution cannot be lost to a focus thief mid-probe-line. The
-    probe needs no arguments and no console — `write` (a system32 exe we
-    temporarily swapped host-side) writes \\conftest\\<collect> and exits.
+    probe needs no arguments and no console — `--exe` names a system32 exe
+    we temporarily swapped host-side (default `write`); it writes
+    \\conftest\\<collect> and exits.
     """
     disk = Path(args.disk).expanduser().resolve()
     if not disk.exists():
@@ -602,10 +603,10 @@ def cmd_extract(args: argparse.Namespace) -> int:
             # No settle sleep before launch: Enter was measured alive ~25 s
             # after the desktop and dead after ~40 s, so launch immediately
             # and let the pixels — not trust — decide whether it worked.
-            log("launching probe via the Run box (write), pixel-verified")
+            log(f"launching probe via the Run box ({args.exe}), pixel-verified")
             probe_ok = False
             for attempt in range(1, 6):
-                if not run_dialog("write", pause=2.0):
+                if not run_dialog(args.exe, pause=2.0):
                     break
                 time.sleep(4.0)
                 shot = workdir / f"screen-launch-{attempt}.bmp"
@@ -624,6 +625,13 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 finished = False
                 while time.time() < end:
                     time.sleep(20.0)
+                    # The XP screensaver (logon.scr: black screen, logo lower
+                    # left) is nearly as dark as an unstyled console, so it made
+                    # "console still up" true forever once it kicked in. A Shift
+                    # keypress dismisses it; a console app that never reads stdin
+                    # (the probe) ignores it, and on the desktop it is inert.
+                    send(["key", "shift"])
+                    time.sleep(0.5)
                     shot = workdir / "screen-settle.bmp"
                     if capture(shot) and not console_dark(shot):
                         log("  probe console gone: probe exited cleanly")
@@ -752,6 +760,10 @@ def main() -> int:
                        help="seconds to let the probe run in-guest (default 900)")
     p_ext.add_argument("--collect", action="append", default=None,
                        metavar="NAME", help="file to extract from \\conftest")
+    p_ext.add_argument("--exe", default="write",
+                       help="system32 exe (swapped host-side) to launch via "
+                            "the Run box; its name is what gets typed "
+                            "(default write)")
     p_ext.add_argument("--shutdown-grace", type=int, default=2400,
                        help="seconds to wait for the guest to power itself off "
                             "before ACPI/hard stop (default 2400)")
