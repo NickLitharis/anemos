@@ -6,6 +6,8 @@ An open-source operating system inspired by Windows XP: new code, written to
 Not a fork. Not a leaked release. New code, written against public
 specifications, with XP's observed behaviour as the oracle.
 
+Public repository: <https://github.com/NickLitharis/anemos>
+
 ## The idea in one paragraph
 
 Windows XP is the compatibility target, not the codebase. The leaked XP source
