@@ -7,6 +7,10 @@ follow.
 Every number below was produced on this machine with clang 23 targeting
 `x86_64-windows-msvc`, and where stated linked with the tree's own `link.exe`.
 
+> **Artifact note:** the `dist/kernel/` binaries referenced below are
+> Microsoft-derived and are kept locally in `~/anemos-private/dist/`; they are
+> not part of this repository.
+
 ---
 
 ## 1. What "small" competes with
@@ -145,7 +149,7 @@ for f in -O2 -Os -Oz; do
 done
 
 # where the bytes are in a real PE
-objdump -h dist/kernel/ntoskrnl.exe
+objdump -h ~/anemos-private/dist/kernel/ntoskrnl.exe
 ```
 
 The `objdump -h` section table is the authority for "did this shrink", because it excludes

@@ -6,12 +6,12 @@ the repository or rewriting history.
 
 | Tag | Snapshot | What it marks |
 |---|---|---|
-| `phase-p0` | `f415bd7` | P0 gates: G1 ABI proof (15/15) and G2 conformance runner. G2's extract-mode hardening follows in `ba7fb90`. |
-| `phase-p1` | `0fffffd` | P1 complete, 6/6: MD5, SHA-1, Base64, CRC-32, NLS, and `STATUS→DOS` proved against XP for all 2^32 statuses. |
-| `phase-p2` | `29ec039` | P2 complete: DNS codec/client and DHCP codec/client, each with an independent implementation as the oracle. |
-| `phase-p3.0` | `280e4da` | P3.0: OpenSSL 3.5.7 cross-built for i686 Windows; SHA/HMAC/AES/RSA KATs. |
-| `phase-p3.1` | `b8d82aa` | P3.1: CSP SPI skeleton — 23+2 exports, contexts, MD5/SHA-1/SHA-256, `CPGenRandom`, provider params. |
-| `phase-p3.1-xp` | `7cc7935` | P3.1 plus the XP hardening: no-threads OpenSSL rebuild and the import-surface gate against `xp-pristine.vmdk`. Current P3 state. |
+| `phase-p0` | `0492280` | P0 gates: G1 ABI proof (15/15) and G2 conformance runner. G2's extract-mode hardening follows in `7b719cc`. |
+| `phase-p1` | `8e099cf` | P1 complete, 6/6: MD5, SHA-1, Base64, CRC-32, NLS, and `STATUS→DOS` proved against XP for all 2^32 statuses. |
+| `phase-p2` | `f1381fd` | P2 complete: DNS codec/client and DHCP codec/client, each with an independent implementation as the oracle. |
+| `phase-p3.0` | `3a7478e` | P3.0: OpenSSL 3.5.7 cross-built for i686 Windows; SHA/HMAC/AES/RSA KATs. |
+| `phase-p3.1` | `255bd57` | P3.1: CSP SPI skeleton — 23+2 exports, contexts, MD5/SHA-1/SHA-256, `CPGenRandom`, provider params. |
+| `phase-p3.1-xp` | `1f9e1ec` | P3.1 plus the XP hardening: no-threads OpenSSL rebuild and the import-surface gate against `xp-pristine.vmdk`. Current P3 state. |
 
 P3 is **in progress**. There is deliberately no `phase-p3` tag yet; it will be
 created when the P3 gate passes (symmetric keys, RSA, the XP run, the CryptoAPI

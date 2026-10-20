@@ -27,7 +27,7 @@ Owner: marocos. Written 2026-10-18. These override convenience, not safety.
    its own focused agent (long independent investigations, deep file reading). Child
    agents must call `herdr_subagent_done` with a summary.
 6. **Use the tooling we have.** The `legacy-nt-modernization` skill holds the measured
-   census — read it instead of re-deriving. Use the ctags index (`/home/marocos/anemos/tags`,
+   census — read it instead of re-deriving. Use the ctags index (`/home/marocos/anemos-private/tags`,
    5.3M tags) rather than blind greps. Search the web for genuine blockers.
 7. **Never report unverified success.** A gate that cannot fail is a failed gate. Prove
    things run, don't assert that they should.

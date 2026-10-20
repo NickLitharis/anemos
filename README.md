@@ -83,7 +83,6 @@ docs/          rules, policies, measurements, and one document per gate/unit
 harness/       razzle wrappers for the legacy build, and the conformance runner
 tools/         ntfspatch.py, code generation, the ABI proof, toolchain.lock
 kernel/ boot/  earlier freestanding experiments, kept as verified history
-tags           ctags index of the XP source
 Source         symlink to the XP source outside this repository (gitignored)
 ```
 
@@ -91,6 +90,11 @@ Source         symlink to the XP source outside this repository (gitignored)
 outside the repository and reachable only through a local symlink for reading
 and as a test oracle. It is never modified and never shipped. See `NOTICE.md`
 and `SCOPE.md`.
+
+Microsoft-derived build evidence (`dist/`, `docs/kernel-build/`,
+`docs/razzle-evidence/`, the generated codemap) and the ctags index are kept
+locally in `~/anemos-private/`. They are not part of this repository or its
+history and are not redistributed.
 
 ## Verify it
 
@@ -111,7 +115,9 @@ tools/abi/run.sh            # G1, clang vs MSVC (15/15)
 `crypto` fail with a clear message until it has been run.
 
 The G2 runner and the kernel boot need the two VMDKs and the legacy toolchain;
-those are environment assets, not part of this repository.
+those are environment assets, not part of this repository. The Microsoft-derived
+binaries and logs those checks produce are kept locally in `~/anemos-private/`,
+not published here.
 
 ## Scope, and the honest limit
 

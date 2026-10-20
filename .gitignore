@@ -15,5 +15,13 @@ anemos/*/out/
 # The XP source lives outside this repository; this is a convenience symlink.
 /Source
 
+# Local evidence derived from Microsoft's source; never published.
+/tags
+/dist/
+docs/razzle-evidence/
+docs/kernel-build/
+docs/codemap/
+docs/m0/EvcrtMsg.h.generated
+
 # Command Code session metadata
 .commandcode/

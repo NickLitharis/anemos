@@ -25,6 +25,9 @@ python3 tools/build_codemap.py
 | `docs/codemap/deps.tsv` | one row per file: `file  imports  defines  calls_out  called_by` |
 | `docs/codemap/deps.json` | same data, machine readable, full symbol names |
 
+> The generated `docs/codemap/` tree is local and gitignored: it is derived from
+> Microsoft's source tree and is not published.
+
 ### Coverage (measured)
 
 1110 files, 1091 import edges, 5561 resolved call edges, 17,406 symbols.
