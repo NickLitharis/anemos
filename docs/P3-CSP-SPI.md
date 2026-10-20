@@ -2,7 +2,7 @@
 
 `anemos/csp/` is the OpenSSL-backed provider: a 32-bit DLL that exports the
 complete CryptoSPI surface, implements contexts, hash objects, randomness,
-provider properties and AES key objects with one-shot encryption, and is
+provider properties and AES key objects with streaming encryption, and is
 exercised by a harness that loads it directly.
 
 The engine is the pinned OpenSSL 3.5.7 build from `anemos/crypto/`. No
@@ -18,7 +18,7 @@ API specification, and the platform types come from the SDK headers.
 | Hashing | `CPCreateHash`, `CPHashData`, `CPGetHashParam`, `CPDestroyHash`, `CPDuplicateHash` | MD5, SHA-1, SHA-256 via OpenSSL EVP; `HP_HASHVAL` finalises a copy, so repeated reads work; `HP_HASHSIZE`; two-call size queries return `ERROR_MORE_DATA` |
 | Provider | `CPGetProvParam`, `CPSetProvParam` | `PP_NAME`, `PP_VERSION` (2.0), `PP_PROVTYPE` (`PROV_RSA_FULL`), `PP_IMPTYPE` (`CRYPT_IMPL_SOFTWARE`), `PP_ENUMALGS` (MD5, SHA1, SHA256) |
 | Keys | `CPGenKey`, `CPDeriveKey`, `CPImportKey`, `CPExportKey`, `CPDestroyKey`, `CPDuplicateKey`, `CPGetKeyParam`, `CPSetKeyParam` | AES-128/192/256; `PLAINTEXTKEYBLOB`; CBC/ECB; PKCS#5 or zero padding; `KP_ALGID`, `KP_KEYLEN`, `KP_BLOCKLEN`, `KP_MODE`, `KP_PADDING`, `KP_IV`; export only when `CRYPT_EXPORTABLE` |
-| Cipher | `CPEncrypt`, `CPDecrypt` | one-shot (`fFinal=TRUE`) with PKCS#5 or zero padding; multi-call streaming returns `NTE_NOT_SUPPORTED` |
+| Cipher | `CPEncrypt`, `CPDecrypt` | multi-call streaming with OpenSSL's block buffering; one-shot is the final call; PKCS#5 or zero padding; per-key stream state |
 | Hash session key | `CPHashSessionKey` | feeds the key bytes into an existing hash |
 | Asymmetric | `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | explicit `NTE_NOT_SUPPORTED` stubs (P3.3) |
 
@@ -54,7 +54,11 @@ policy question: it is user-mode, and all state is in fixed tables guarded by a
      ECB), PKCS#5 and zero padding, `KP_*` parameters, `PLAINTEXTKEYBLOB`
      import/export/duplicate, hash-derived keys, and negative cases: wrong blob
      length, non-exportable export, short encrypt buffer, tampered padding,
-     invalid mode, unsupported algorithm, multi-call refusal;
+     invalid mode and unsupported algorithm;
+   - multi-call streaming: 5+11+16 byte encryption reproduces the two-block
+     SP 800-38A ciphertext, 7+9+16 byte decryption reproduces the plaintext,
+     PKCS#5 streaming round-trips, a partial zero-padded final is rejected, and
+     a second one-shot after `fFinal` restarts from the configured IV;
    - unsupported asymmetric operations fail with `NTE_NOT_SUPPORTED`, unknown
      algorithms with `NTE_BAD_ALGID`, invalid handles with `NTE_BAD_HASH` or
      `NTE_BAD_KEY`;
@@ -75,9 +79,11 @@ XP-clean import table, and it is explicit in the code.
 
 ## Limits and next
 
-- **One-shot cipher only.** `CPEncrypt`/`CPDecrypt` require `fFinal=TRUE` and
-  a whole call; multi-call streaming returns `NTE_NOT_SUPPORTED`. Streaming is
-  P3.2b.
+- **Streaming state is per key.** A direction switch or a mode/IV/padding
+  change resets it and discards buffered bytes; `fFinal` resets to the
+  configured IV. A key cannot be used by two concurrent streams.
+- **Zero padding requires block-aligned input** across the stream; a partial
+  final returns failure. PKCS#5 accepts arbitrary lengths.
 - **Key derivation is explicit, not RSA-style.** `CPDeriveKey` takes the first
   `key_len` bytes of the hash value; the hash must be at least that long.
 - **No persistent keysets.** `CPGetUserKey` and keyset management are not
