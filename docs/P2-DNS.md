@@ -7,7 +7,9 @@ that are defined to carry domain names (NS, CNAME, SOA, PTR, MX, SRV).
 
 It is a codec, not a resolver. It makes no network call and keeps no cache. That
 is deliberate: the RFC fixes every byte, so this unit can be proved without the
-VM, and it is the piece the resolver replacement will sit on.
+VM. The resolver-shaped layer sits on top in
+`anemos/dns/dns_client.{h,c}` (`docs/P2-DNS-CLIENT.md`): response correlation,
+RCODE/TC handling and CNAME chains, still without a socket.
 
 There is **no Microsoft source in this directory**. The wire format is the
 specification; Microsoft's resolver was not read. XP's own observable resolver
@@ -93,7 +95,8 @@ is a fixed point.
 
 ## How it is verified
 
-`anemos/dns/run.sh` — 12 checks, all able to fail:
+`anemos/dns/run.sh` — 24 checks for codec + client, all able to fail.
+The codec-specific ones:
 
 1. **Vector suite, i686 PE under Wine.** Seven hand-written golden messages
    (query, CNAME→A, MX, SOA, SRV, root, single label). Each must parse, write
@@ -116,7 +119,8 @@ is a fixed point.
    disagree on the same corpus, proving the differential gate is sensitive.
 4. **Freestanding object + size budget.** `dns.c` compiles for
    `i686-windows-msvc` and its `.text` is **4,776 bytes**, under the 8 KB
-   per-translation-unit budget.
+   per-translation-unit budget. The client is 1,117 bytes and is gated the same
+   way.
 
 Corpus coverage of the error classes (from `out/got.txt`): 428 accepted,
 203 `SHORT`, 287 `TRUNCATED`, 154 `BAD_LABEL`, 36 `BAD_POINTER`, 2
@@ -153,7 +157,8 @@ anemos/dns/run.sh
 
 It proves the codec matches RFC 1035 as read by two independent
 implementations, including on 1,365 malformed and mutated inputs, and that it
-behaves identically when built for the destination ABI.
+behaves identically when built for the destination ABI. The client layer is
+proved separately over 2,040 query/response cases (`docs/P2-DNS-CLIENT.md`).
 
 It does **not** prove XP's resolver accepts the same messages. That is a
 behavioural question about XP, and the oracle for it is the guest. It becomes
