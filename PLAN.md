@@ -39,11 +39,12 @@ Not a roadmap — measured state as of today.
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
 | **Anemos code — P1** | ✅ **6/6** | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` — RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors, plus the `STATUS→DOS` map verified against live XP for **all 2^32 statuses** (`docs/P1-STATUSDOS.md`) |
+| **Anemos code — P2 DNS codec** | ✅ | `anemos/dns/` — RFC 1035 parse/serialise, byte-identical canonical round-trip, 1,365-case differential corpus against an independent Python implementation, 12/12 (`docs/P2-DNS.md`) |
 
-The method is proven, and P1 is written and gated
+The method is proven, P1 is written and gated
 (`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
-`anemos/include/`). Everything from here is substitution work behind stable
-interfaces.
+`anemos/include/`), and P2's DNS codec is gated (`anemos/dns/`). Everything from
+here is substitution work behind stable interfaces.
 
 ---
 
@@ -102,7 +103,7 @@ Each phase begins only when the previous gate passes.
 |---|---|---|
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
-| **P2** | Wire formats: DNS codec (205 C files, RFC 1035), then DHCP | identical bytes out, identical error codes on malformed input |
+| **P2** | Wire formats: DNS codec (**done** — `anemos/dns/`), then DHCP | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: an OpenSSL-backed CSP in the empty `rsaenh` slot | XP's own crypto self-tests pass; known-answer tests for every exposed algorithm |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
@@ -161,8 +162,18 @@ nobody has legally rewritten.
    structurally infeasible (>6 GB of triples and never reaching `0xC0000000+`); the
    model-verification probe that replaced it emits mismatches only and settled the map in
    three walks. Two documented mappings turned out to be wrong and XP won, as it must.
-4. **P2 — the DNS codec (RFC 1035)**, next: host-side parse/serialise with byte-identical
-   round-trips and identical error codes on malformed input, then the DHCP client behind it.
+4. ~~**P2 — the DNS codec (RFC 1035)**: host-side parse/serialise with
+   byte-identical round-trips and identical error codes on malformed input.~~
+   **DNS codec complete 2026-10-20.** `anemos/dns/` — zero-copy RFC 1035 view,
+   deterministic longest-suffix compression, and a 1,365-case differential corpus
+   where an independent Python implementation and the C codec must agree on the
+   status code, canonical bytes and reparse status (`docs/P2-DNS.md`, 12/12).
+   Byte-identical round-trips are pinned by seven hand-written RFC vectors; the
+   negative control proves the corpus gate can fail. XP's resolver behaviour is
+   not claimed yet — it needs the socket path in P4.
+5. **P2 continued — the DHCP client** (RFC 2131/2132), next: the same shape —
+   host-side codec, independent implementation as the oracle, canonical
+   round-trip, then the client state machine.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
@@ -181,4 +192,6 @@ interfaces do not move.
 | `docs/TASK-REQUIREMENTS.md` | Tool and skill survey |
 | `docs/X64-STATUS.md` | 21/23 subsystems build for AMD64 |
 | `docs/KERNEL-BOOTS-XP.md` | The boot result and how to reproduce it |
+| `docs/P1-STATUSDOS.md` | The STATUS→DOS map proved against XP for all 2^32 statuses |
+| `docs/P2-DNS.md` | DNS codec: model, canonical compression, the differential gate, limits |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
