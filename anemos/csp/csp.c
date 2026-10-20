@@ -1,6 +1,6 @@
-/* Anemos CSP — the first SPI slice: contexts, hashing, randomness, provider
- * properties. Key objects and asymmetric operations are explicit stubs that
- * return NTE_NOT_SUPPORTED.
+/* Anemos CSP — contexts, hashing, randomness, provider properties, and AES
+ * key objects with one-shot encrypt/decrypt. Asymmetric operations remain
+ * explicit stubs.
  *
  * Engine: the statically linked OpenSSL 3.5.7 built by
  * anemos/crypto/build-openssl.sh. Randomness comes from SystemFunction036
@@ -15,11 +15,15 @@
 
 #include <openssl/evp.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define ANEM_CSP_SLOTS 32u
 #define ANEM_CTX_BASE ((ULONG_PTR)0x00010000u)
 #define ANEM_HASH_BASE ((ULONG_PTR)0x00020000u)
+#define ANEM_KEY_BASE ((ULONG_PTR)0x00030000u)
+#define ANEM_BLOCK_SIZE 16u
+#define ANEM_MAX_KEY_LEN 32u
 
 typedef struct AnemCspContext {
     bool used;
@@ -35,10 +39,23 @@ typedef struct AnemCspHash {
     EVP_MD_CTX *md;
 } AnemCspHash;
 
+typedef struct AnemCspKey {
+    bool used;
+    HCRYPTPROV prov;
+    ALG_ID alg;
+    DWORD flags;
+    DWORD mode;
+    DWORD padding;
+    DWORD key_len;
+    BYTE iv[ANEM_BLOCK_SIZE];
+    BYTE key[ANEM_MAX_KEY_LEN];
+} AnemCspKey;
+
 static CRITICAL_SECTION g_lock;
 static bool g_ready;
 static AnemCspContext g_ctx[ANEM_CSP_SLOTS];
 static AnemCspHash g_hash[ANEM_CSP_SLOTS];
+static AnemCspKey g_key[ANEM_CSP_SLOTS];
 
 /* advapi32's RtlGenRandom. Declared here rather than including a header whose
  * availability differs across SDKs; the symbol is stable. */
@@ -93,6 +110,82 @@ static void destroy_hashes_of(HCRYPTPROV hProv)
     }
 }
 
+static AnemCspKey *key_lookup(HCRYPTKEY hKey)
+{
+    ULONG_PTR index;
+
+    if (hKey < ANEM_KEY_BASE || hKey >= ANEM_KEY_BASE + ANEM_CSP_SLOTS) {
+        return NULL;
+    }
+    index = hKey - ANEM_KEY_BASE;
+    return g_key[index].used ? &g_key[index] : NULL;
+}
+
+static HCRYPTKEY key_handle(const AnemCspKey *key)
+{
+    return (HCRYPTKEY)(ANEM_KEY_BASE + (ULONG_PTR)(key - g_key));
+}
+
+static void secure_zero(void *dst, size_t n)
+{
+    volatile BYTE *p = (volatile BYTE *)dst;
+
+    for (size_t i = 0; i < n; i++) {
+        p[i] = 0;
+    }
+}
+
+static void destroy_keys_of(HCRYPTPROV hProv)
+{
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (g_key[i].used && g_key[i].prov == hProv) {
+            secure_zero(&g_key[i], sizeof g_key[i]);
+            g_key[i].used = false;
+        }
+    }
+}
+
+static DWORD aes_key_len(ALG_ID alg)
+{
+    switch (alg) {
+    case CALG_AES_128:
+        return 16;
+    case CALG_AES_192:
+        return 24;
+    case CALG_AES_256:
+        return 32;
+    default:
+        return 0;
+    }
+}
+
+static const EVP_CIPHER *aes_cipher(ALG_ID alg, DWORD mode)
+{
+    bool cbc = mode == CRYPT_MODE_CBC;
+
+    switch (alg) {
+    case CALG_AES_128:
+        return cbc ? EVP_aes_128_cbc() : EVP_aes_128_ecb();
+    case CALG_AES_192:
+        return cbc ? EVP_aes_192_cbc() : EVP_aes_192_ecb();
+    case CALG_AES_256:
+        return cbc ? EVP_aes_256_cbc() : EVP_aes_256_ecb();
+    default:
+        return NULL;
+    }
+}
+
+static void key_defaults(AnemCspKey *key, ALG_ID alg, DWORD flags)
+{
+    memset(key, 0, sizeof *key);
+    key->used = true;
+    key->alg = alg;
+    key->flags = flags & CRYPT_EXPORTABLE;
+    key->mode = CRYPT_MODE_CBC;
+    key->padding = PKCS5_PADDING;
+    key->key_len = aes_key_len(alg);
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     (void)reserved;
@@ -106,6 +199,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
                 EVP_MD_CTX_free(g_hash[i].md);
                 g_hash[i].md = NULL;
                 g_hash[i].used = false;
+            }
+            if (g_key[i].used) {
+                secure_zero(&g_key[i], sizeof g_key[i]);
+                g_key[i].used = false;
             }
         }
         DeleteCriticalSection(&g_lock);
@@ -179,6 +276,7 @@ ANEM_CSP_API BOOL WINAPI CPReleaseContext(HCRYPTPROV hProv, DWORD dwFlags)
     ctx = ctx_lookup(hProv);
     if (ctx != NULL) {
         destroy_hashes_of(hProv);
+        destroy_keys_of(hProv);
         memset(ctx, 0, sizeof *ctx);
     }
     LeaveCriticalSection(&g_lock);
@@ -529,60 +627,204 @@ ANEM_CSP_API BOOL WINAPI CPSetHashParam(HCRYPTPROV hProv, HCRYPTHASH hHash,
     return fail(NTE_INVALID_PARAMETER);
 }
 
-/* ---- key operations: explicit stubs for the next slice ---- */
+/* ---- symmetric key objects ---- */
 
 ANEM_CSP_API BOOL WINAPI CPGenKey(HCRYPTPROV hProv, ALG_ID Algid,
                                   DWORD dwFlags, HCRYPTKEY *phKey)
 {
-    (void)hProv;
-    (void)Algid;
-    (void)dwFlags;
-    (void)phKey;
-    return fail(NTE_NOT_SUPPORTED);
+    AnemCspKey *slot = NULL;
+    DWORD key_len = aes_key_len(Algid);
+
+    if (phKey == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    *phKey = 0;
+    if (key_len == 0) {
+        return fail(NTE_BAD_ALGID);
+    }
+    EnterCriticalSection(&g_lock);
+    if (ctx_lookup(hProv) == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEYSET);
+    }
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (!g_key[i].used) {
+            slot = &g_key[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    key_defaults(slot, Algid, dwFlags);
+    slot->prov = hProv;
+    if (!SystemFunction036(slot->key, key_len)) {
+        secure_zero(slot, sizeof *slot);
+        LeaveCriticalSection(&g_lock);
+        return fail(ERROR_GEN_FAILURE);
+    }
+    *phKey = key_handle(slot);
+    LeaveCriticalSection(&g_lock);
+    return TRUE;
 }
 
 ANEM_CSP_API BOOL WINAPI CPDeriveKey(HCRYPTPROV hProv, ALG_ID Algid,
                                      HCRYPTHASH hHash, DWORD dwFlags,
                                      HCRYPTKEY *phKey)
 {
-    (void)hProv;
-    (void)Algid;
-    (void)hHash;
-    (void)dwFlags;
-    (void)phKey;
-    return fail(NTE_NOT_SUPPORTED);
+    AnemCspKey *slot = NULL;
+    AnemCspHash *hash;
+    EVP_MD_CTX *tmp;
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    DWORD key_len = aes_key_len(Algid);
+    DWORD error = NTE_FAIL;
+    BOOL ok = FALSE;
+
+    if (phKey == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    *phKey = 0;
+    if (key_len == 0) {
+        return fail(NTE_BAD_ALGID);
+    }
+    EnterCriticalSection(&g_lock);
+    if (ctx_lookup(hProv) == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEYSET);
+    }
+    hash = hash_lookup(hHash);
+    if (hash == NULL || hash->prov != hProv || hash->md == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_HASH);
+    }
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (!g_key[i].used) {
+            slot = &g_key[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    tmp = EVP_MD_CTX_new();
+    if (tmp == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    if (EVP_MD_CTX_copy_ex(tmp, hash->md) != 1
+        || EVP_DigestFinal_ex(tmp, digest, &digest_len) != 1) {
+        error = NTE_FAIL;
+    } else if (digest_len < key_len) {
+        error = NTE_BAD_LEN;
+    } else {
+        /* Documented derivation: the first key_len bytes of the hash value. */
+        key_defaults(slot, Algid, dwFlags);
+        slot->prov = hProv;
+        memcpy(slot->key, digest, key_len);
+        *phKey = key_handle(slot);
+        ok = TRUE;
+    }
+    EVP_MD_CTX_free(tmp);
+    secure_zero(digest, sizeof digest);
+    LeaveCriticalSection(&g_lock);
+    return ok ? TRUE : fail(error);
 }
 
 ANEM_CSP_API BOOL WINAPI CPDestroyKey(HCRYPTPROV hProv, HCRYPTKEY hKey)
 {
-    (void)hProv;
-    (void)hKey;
-    return fail(NTE_NOT_SUPPORTED);
+    AnemCspKey *key;
+    BOOL found = FALSE;
+
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key != NULL && key->prov == hProv) {
+        secure_zero(key, sizeof *key);
+        found = TRUE;
+    }
+    LeaveCriticalSection(&g_lock);
+    return found ? TRUE : fail(NTE_BAD_KEY);
 }
 
 ANEM_CSP_API BOOL WINAPI CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                        DWORD dwParam, const BYTE *pbData,
                                        DWORD dwFlags)
 {
-    (void)hProv;
-    (void)hKey;
-    (void)dwParam;
-    (void)pbData;
+    AnemCspKey *key;
+    DWORD value = 0;
+    BOOL ok = FALSE;
+
     (void)dwFlags;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pbData == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key == NULL || key->prov != hProv) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    if (dwParam == KP_MODE) {
+        memcpy(&value, pbData, sizeof value);
+        if (value == CRYPT_MODE_CBC || value == CRYPT_MODE_ECB) {
+            key->mode = value;
+            ok = TRUE;
+        }
+    } else if (dwParam == KP_PADDING) {
+        memcpy(&value, pbData, sizeof value);
+        if (value == PKCS5_PADDING || value == ZERO_PADDING) {
+            key->padding = value;
+            ok = TRUE;
+        }
+    } else if (dwParam == KP_IV) {
+        memcpy(key->iv, pbData, ANEM_BLOCK_SIZE);
+        ok = TRUE;
+    }
+    LeaveCriticalSection(&g_lock);
+    return ok ? TRUE : fail(NTE_INVALID_PARAMETER);
 }
 
 ANEM_CSP_API BOOL WINAPI CPGetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                        DWORD dwParam, LPBYTE pbData,
                                        LPDWORD pcbDataLen, DWORD dwFlags)
 {
-    (void)hProv;
-    (void)hKey;
-    (void)dwParam;
-    (void)pbData;
-    (void)pcbDataLen;
+    AnemCspKey *key;
+    DWORD value = 0;
+    BOOL result;
+
     (void)dwFlags;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pcbDataLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key == NULL || key->prov != hProv) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    if (dwParam == KP_IV) {
+        result = copy_out(pbData, pcbDataLen, key->iv, ANEM_BLOCK_SIZE);
+    } else {
+        if (dwParam == KP_ALGID) {
+            value = key->alg;
+        } else if (dwParam == KP_KEYLEN) {
+            value = key->key_len * 8u;
+        } else if (dwParam == KP_BLOCKLEN) {
+            value = ANEM_BLOCK_SIZE * 8u;
+        } else if (dwParam == KP_MODE) {
+            value = key->mode;
+        } else if (dwParam == KP_PADDING) {
+            value = key->padding;
+        } else {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_INVALID_PARAMETER);
+        }
+        result = copy_out(pbData, pcbDataLen, &value, sizeof value);
+    }
+    LeaveCriticalSection(&g_lock);
+    return result;
 }
 
 ANEM_CSP_API BOOL WINAPI CPExportKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
@@ -590,27 +832,105 @@ ANEM_CSP_API BOOL WINAPI CPExportKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                      DWORD dwFlags, LPBYTE pbData,
                                      LPDWORD pcbDataLen)
 {
-    (void)hProv;
-    (void)hKey;
+    AnemCspKey *key;
+    BLOBHEADER header;
+    DWORD needed;
+    DWORD cb_key;
+
     (void)hPubKey;
-    (void)dwBlobType;
     (void)dwFlags;
-    (void)pbData;
-    (void)pcbDataLen;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pcbDataLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    if (dwBlobType != PLAINTEXTKEYBLOB) {
+        return fail(NTE_BAD_TYPE);
+    }
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key == NULL || key->prov != hProv) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    if ((key->flags & CRYPT_EXPORTABLE) == 0u) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_PERM);
+    }
+    needed = (DWORD)sizeof header + (DWORD)sizeof cb_key + key->key_len;
+    if (pbData == NULL || *pcbDataLen < needed) {
+        *pcbDataLen = needed;
+        LeaveCriticalSection(&g_lock);
+        return fail(ERROR_MORE_DATA);
+    }
+    memset(&header, 0, sizeof header);
+    header.bType = PLAINTEXTKEYBLOB;
+    header.bVersion = CUR_BLOB_VERSION;
+    header.aiKeyAlg = key->alg;
+    cb_key = key->key_len;
+    memcpy(pbData, &header, sizeof header);
+    memcpy(pbData + sizeof header, &cb_key, sizeof cb_key);
+    memcpy(pbData + sizeof header + sizeof cb_key, key->key, key->key_len);
+    *pcbDataLen = needed;
+    LeaveCriticalSection(&g_lock);
+    return TRUE;
 }
 
 ANEM_CSP_API BOOL WINAPI CPImportKey(HCRYPTPROV hProv, const BYTE *pbData,
                                      DWORD cbDataLen, HCRYPTKEY hPubKey,
                                      DWORD dwFlags, HCRYPTKEY *phKey)
 {
-    (void)hProv;
-    (void)pbData;
-    (void)cbDataLen;
+    AnemCspKey *slot = NULL;
+    BLOBHEADER header;
+    DWORD cb_key;
+    DWORD key_len;
+
     (void)hPubKey;
-    (void)dwFlags;
-    (void)phKey;
-    return fail(NTE_NOT_SUPPORTED);
+    if (phKey == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    *phKey = 0;
+    if (pbData == NULL
+        || cbDataLen < (DWORD)sizeof header + (DWORD)sizeof cb_key) {
+        return fail(NTE_BAD_LEN);
+    }
+    memcpy(&header, pbData, sizeof header);
+    if (header.bType != PLAINTEXTKEYBLOB) {
+        return fail(NTE_BAD_TYPE);
+    }
+    if (header.bVersion != CUR_BLOB_VERSION) {
+        return fail(NTE_BAD_VER);
+    }
+    key_len = aes_key_len(header.aiKeyAlg);
+    if (key_len == 0) {
+        return fail(NTE_BAD_ALGID);
+    }
+    memcpy(&cb_key, pbData + sizeof header, sizeof cb_key);
+    if (cb_key != key_len) {
+        return fail(NTE_BAD_LEN);
+    }
+    if (cbDataLen != (DWORD)sizeof header + (DWORD)sizeof cb_key + cb_key) {
+        return fail(NTE_BAD_LEN);
+    }
+    EnterCriticalSection(&g_lock);
+    if (ctx_lookup(hProv) == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEYSET);
+    }
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (!g_key[i].used) {
+            slot = &g_key[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    key_defaults(slot, header.aiKeyAlg, dwFlags);
+    slot->prov = hProv;
+    memcpy(slot->key, pbData + sizeof header + sizeof cb_key, key_len);
+    *phKey = key_handle(slot);
+    LeaveCriticalSection(&g_lock);
+    return TRUE;
 }
 
 ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
@@ -618,15 +938,81 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                    DWORD dwFlags, LPBYTE pbData,
                                    LPDWORD pcbDataLen, DWORD cbBufLen)
 {
-    (void)hProv;
-    (void)hKey;
-    (void)hHash;
-    (void)fFinal;
+    AnemCspKey *key;
+    const EVP_CIPHER *cipher;
+    EVP_CIPHER_CTX *ctx;
+    BYTE *input;
+    DWORD input_len;
+    size_t required;
+    int out1 = 0;
+    int out2 = 0;
+    BOOL ok = FALSE;
+
     (void)dwFlags;
-    (void)pbData;
-    (void)pcbDataLen;
-    (void)cbBufLen;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pbData == NULL || pcbDataLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    if (!fFinal || hHash != 0) {
+        return fail(NTE_NOT_SUPPORTED); /* streaming is the next slice */
+    }
+    input_len = *pcbDataLen;
+    if (input_len > cbBufLen || input_len > 0x7fffffffu) {
+        return fail(NTE_BAD_LEN);
+    }
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key == NULL || key->prov != hProv) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    cipher = aes_cipher(key->alg, key->mode);
+    if (cipher == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_ALGID);
+    }
+    if (key->padding == ZERO_PADDING) {
+        if (input_len % ANEM_BLOCK_SIZE != 0u) {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_BAD_LEN);
+        }
+        required = input_len;
+    } else if (key->padding == PKCS5_PADDING) {
+        required = ((size_t)input_len / ANEM_BLOCK_SIZE + 1u) * ANEM_BLOCK_SIZE;
+    } else {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_INVALID_PARAMETER);
+    }
+    if ((size_t)cbBufLen < required) {
+        *pcbDataLen = (DWORD)required;
+        LeaveCriticalSection(&g_lock);
+        return fail(ERROR_MORE_DATA);
+    }
+    input = (BYTE *)malloc(input_len != 0u ? input_len : 1u);
+    if (input == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    if (input_len != 0u) {
+        memcpy(input, pbData, input_len);
+    }
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx != NULL
+        && EVP_EncryptInit_ex(ctx, cipher, NULL, key->key,
+                              key->mode == CRYPT_MODE_CBC ? key->iv : NULL) == 1) {
+        if (key->padding == ZERO_PADDING) {
+            (void)EVP_CIPHER_CTX_set_padding(ctx, 0);
+        }
+        if (EVP_EncryptUpdate(ctx, pbData, &out1, input, (int)input_len) == 1
+            && EVP_EncryptFinal_ex(ctx, pbData + out1, &out2) == 1) {
+            *pcbDataLen = (DWORD)(out1 + out2);
+            ok = TRUE;
+        }
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    secure_zero(input, input_len);
+    free(input);
+    LeaveCriticalSection(&g_lock);
+    return ok ? TRUE : fail(NTE_ENCRYPTION_FAILURE);
 }
 
 ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
@@ -634,24 +1020,87 @@ ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                    DWORD dwFlags, LPBYTE pbData,
                                    LPDWORD pcbDataLen)
 {
-    (void)hProv;
-    (void)hKey;
-    (void)hHash;
-    (void)fFinal;
+    AnemCspKey *key;
+    const EVP_CIPHER *cipher;
+    EVP_CIPHER_CTX *ctx;
+    BYTE *input;
+    DWORD input_len;
+    int out1 = 0;
+    int out2 = 0;
+    BOOL ok = FALSE;
+
     (void)dwFlags;
-    (void)pbData;
-    (void)pcbDataLen;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pbData == NULL || pcbDataLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    if (!fFinal || hHash != 0) {
+        return fail(NTE_NOT_SUPPORTED); /* streaming is the next slice */
+    }
+    input_len = *pcbDataLen;
+    if (input_len == 0u || input_len % ANEM_BLOCK_SIZE != 0u
+        || input_len > 0x7fffffffu) {
+        return fail(NTE_BAD_LEN);
+    }
+    EnterCriticalSection(&g_lock);
+    key = key_lookup(hKey);
+    if (key == NULL || key->prov != hProv) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    cipher = aes_cipher(key->alg, key->mode);
+    if (cipher == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_ALGID);
+    }
+    if (key->padding != ZERO_PADDING && key->padding != PKCS5_PADDING) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_INVALID_PARAMETER);
+    }
+    input = (BYTE *)malloc(input_len);
+    if (input == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    memcpy(input, pbData, input_len);
+    ctx = EVP_CIPHER_CTX_new();
+    if (ctx != NULL
+        && EVP_DecryptInit_ex(ctx, cipher, NULL, key->key,
+                              key->mode == CRYPT_MODE_CBC ? key->iv : NULL) == 1) {
+        if (key->padding == ZERO_PADDING) {
+            (void)EVP_CIPHER_CTX_set_padding(ctx, 0);
+        }
+        if (EVP_DecryptUpdate(ctx, pbData, &out1, input, (int)input_len) == 1
+            && EVP_DecryptFinal_ex(ctx, pbData + out1, &out2) == 1) {
+            *pcbDataLen = (DWORD)(out1 + out2);
+            ok = TRUE;
+        }
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    secure_zero(input, input_len);
+    free(input);
+    LeaveCriticalSection(&g_lock);
+    return ok ? TRUE : fail(NTE_DECRYPTION_FAILURE);
 }
 
 ANEM_CSP_API BOOL WINAPI CPHashSessionKey(HCRYPTPROV hProv, HCRYPTHASH hHash,
                                           HCRYPTKEY hKey, DWORD dwFlags)
 {
-    (void)hProv;
-    (void)hHash;
-    (void)hKey;
+    AnemCspHash *hash;
+    AnemCspKey *key;
+    DWORD error = NTE_BAD_HASH;
+    BOOL ok = FALSE;
+
     (void)dwFlags;
-    return fail(NTE_NOT_SUPPORTED);
+    EnterCriticalSection(&g_lock);
+    hash = hash_lookup(hHash);
+    key = key_lookup(hKey);
+    if (hash != NULL && key != NULL && hash->prov == hProv
+        && key->prov == hProv && hash->md != NULL) {
+        error = NTE_FAIL;
+        ok = EVP_DigestUpdate(hash->md, key->key, key->key_len) == 1;
+    }
+    LeaveCriticalSection(&g_lock);
+    return ok ? TRUE : fail(error);
 }
 
 ANEM_CSP_API BOOL WINAPI CPSignHash(HCRYPTPROV hProv, HCRYPTHASH hHash,
@@ -699,10 +1148,33 @@ ANEM_CSP_API BOOL WINAPI CPDuplicateKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                         LPDWORD pdwReserved, DWORD dwFlags,
                                         HCRYPTKEY *phKey)
 {
-    (void)hProv;
-    (void)hKey;
+    AnemCspKey *src;
+    AnemCspKey *slot = NULL;
+    DWORD error = NTE_BAD_KEY;
+    BOOL found = FALSE;
+
     (void)pdwReserved;
     (void)dwFlags;
-    (void)phKey;
-    return fail(NTE_NOT_SUPPORTED);
+    if (phKey == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    *phKey = 0;
+    EnterCriticalSection(&g_lock);
+    src = key_lookup(hKey);
+    if (src != NULL && src->prov == hProv) {
+        error = NTE_NO_MEMORY;
+        for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+            if (!g_key[i].used) {
+                slot = &g_key[i];
+                break;
+            }
+        }
+        if (slot != NULL) {
+            *slot = *src;
+            *phKey = key_handle(slot);
+            found = TRUE;
+        }
+    }
+    LeaveCriticalSection(&g_lock);
+    return found ? TRUE : fail(error);
 }
