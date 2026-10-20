@@ -4,8 +4,10 @@
 # Checks, each able to fail:
 #   1  the pinned clang builds anemosp.dll against the cross-built OpenSSL
 #   2  all 23 required + 2 optional SPI names are exported undecorated
-#   3  the LoadLibrary harness passes every check under Wine
-#   4  a harness built with a wrong expected digest FAILS
+#   3  every import exists on XP (Wine is not XP; this is the static check)
+#   4  a Vista-only import is rejected by that check
+#   5  the LoadLibrary harness passes every check under Wine
+#   6  a harness built with a wrong expected digest FAILS
 #
 # The harness calls the SPI directly. It deliberately does not go through
 # CryptAcquireContext: stock XP verifies the provider image signature first
@@ -17,7 +19,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT="$HERE/out"
 LLVM="$HOME/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin"
-OSSL="$HOME/.local/opt/openssl-3.5.7-i686"
+OSSL="$HOME/.local/opt/openssl-3.5.7-i686-xp"
 
 export PATH="$LLVM:$PATH"
 export WINEDEBUG=-all WINEPREFIX=${WINEPREFIX:-$HOME/.wine-xp}
@@ -75,10 +77,53 @@ else
     bad "the export surface (no DLL)"
 fi
 
-step "3: SPI harness under Wine"
+step "3: XP load surface"
+imports_log="$OUT/xp_imports.log"
+: >"$imports_log"
+imports_ok=1
+for pe in anemosp.dll; do
+    if [ -f "$OUT/$pe" ]; then
+        if python3 "$HERE/check_xp_imports.py" "$OUT/$pe" \
+                --objdump "$LLVM/llvm-objdump" >>"$imports_log" 2>&1; then
+            ok "$pe imports only APIs present on XP"
+        else
+            bad "$pe imports only APIs present on XP"
+            imports_ok=0
+        fi
+    else
+        bad "$pe imports only APIs present on XP (no $pe)"
+        imports_ok=0
+    fi
+done
+if [ "$imports_ok" -eq 0 ]; then
+    sed 's/^/    /' "$imports_log"
+fi
+
+step "4: negative control — a Vista import must be rejected"
+if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror \
+        -o "$OUT/bad_vista.exe" "$HERE/bad_vista.c"; then
+    ok "Vista-import control builds"
+    if python3 "$HERE/check_xp_imports.py" "$OUT/bad_vista.exe" \
+            --objdump "$LLVM/llvm-objdump" >/dev/null 2>&1; then
+        bad "Vista import is rejected"
+    else
+        ok "Vista import is rejected"
+    fi
+else
+    bad "Vista-import control builds"
+fi
+
+step "5: SPI harness under Wine"
 if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror -I"$HERE" \
         -o "$OUT/spi_test.exe" "$HERE/spi_test.c"; then
     ok "harness builds"
+    if python3 "$HERE/check_xp_imports.py" "$OUT/spi_test.exe" \
+            --objdump "$LLVM/llvm-objdump" >"$OUT/harness_imports.log" 2>&1; then
+        ok "spi_test.exe imports only APIs present on XP"
+    else
+        bad "spi_test.exe imports only APIs present on XP"
+        sed 's/^/    /' "$OUT/harness_imports.log"
+    fi
     if (cd "$OUT" && wine spi_test.exe anemosp.dll) 2>&1 | tr -d '\r' \
             | tee "$OUT/spi.log"; then
         ok "every SPI check passes"
@@ -89,7 +134,7 @@ else
     bad "harness builds"
 fi
 
-step "4: negative control — a wrong expected digest must fail"
+step "6: negative control — a wrong expected digest must fail"
 if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror -DANEM_CSP_NEGATIVE \
         -I"$HERE" -o "$OUT/spi_test_neg.exe" "$HERE/spi_test.c"; then
     ok "negative harness builds"
@@ -102,7 +147,7 @@ else
     bad "negative harness builds"
 fi
 
-step "5: artifact size (report only)"
+step "7: artifact size (report only)"
 if [ -f "$OUT/anemosp.dll" ]; then
     size=$(stat -c%s "$OUT/anemosp.dll")
     printf 'anemosp.dll: %s bytes (statically linked OpenSSL)\n' "$size"

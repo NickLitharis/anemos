@@ -241,18 +241,11 @@ ANEM_CSP_API BOOL WINAPI CPCreateHash(HCRYPTPROV hProv, ALG_ID Algid,
     if (md == NULL) {
         return fail(NTE_BAD_ALGID);
     }
-    md_ctx = EVP_MD_CTX_new();
-    if (md_ctx == NULL) {
-        return fail(NTE_NO_MEMORY);
-    }
-    if (EVP_DigestInit_ex(md_ctx, md, NULL) != 1) {
-        EVP_MD_CTX_free(md_ctx);
-        return fail(NTE_FAIL);
-    }
+    /* OpenSSL is built with no-threads so it loads on XP; every OpenSSL call
+     * is serialised through this provider lock instead. */
     EnterCriticalSection(&g_lock);
     if (ctx_lookup(hProv) == NULL) {
         LeaveCriticalSection(&g_lock);
-        EVP_MD_CTX_free(md_ctx);
         return fail(NTE_BAD_KEYSET);
     }
     for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
@@ -263,8 +256,17 @@ ANEM_CSP_API BOOL WINAPI CPCreateHash(HCRYPTPROV hProv, ALG_ID Algid,
     }
     if (slot == NULL) {
         LeaveCriticalSection(&g_lock);
-        EVP_MD_CTX_free(md_ctx);
         return fail(NTE_NO_MEMORY);
+    }
+    md_ctx = EVP_MD_CTX_new();
+    if (md_ctx == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    if (EVP_DigestInit_ex(md_ctx, md, NULL) != 1) {
+        EVP_MD_CTX_free(md_ctx);
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_FAIL);
     }
     memset(slot, 0, sizeof *slot);
     slot->used = true;
@@ -465,8 +467,9 @@ ANEM_CSP_API BOOL WINAPI CPDuplicateHash(HCRYPTPROV hProv, HCRYPTHASH hHash,
 {
     AnemCspHash *src;
     AnemCspHash *slot = NULL;
-    EVP_MD_CTX *copy;
+    EVP_MD_CTX *copy = NULL;
     BOOL found = FALSE;
+    DWORD error = NTE_BAD_HASH;
 
     (void)pdwReserved;
     (void)dwFlags;
@@ -474,34 +477,42 @@ ANEM_CSP_API BOOL WINAPI CPDuplicateHash(HCRYPTPROV hProv, HCRYPTHASH hHash,
         return fail(ERROR_INVALID_PARAMETER);
     }
     *phHash = 0;
-    copy = EVP_MD_CTX_new();
-    if (copy == NULL) {
-        return fail(NTE_NO_MEMORY);
-    }
     EnterCriticalSection(&g_lock);
     src = hash_lookup(hHash);
-    if (src != NULL && src->prov == hProv
-        && EVP_MD_CTX_copy_ex(copy, src->md) == 1) {
-        for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
-            if (!g_hash[i].used) {
-                slot = &g_hash[i];
-                break;
+    if (src == NULL || src->prov != hProv) {
+        error = NTE_BAD_HASH;
+    } else {
+        copy = EVP_MD_CTX_new();
+        if (copy == NULL) {
+            error = NTE_NO_MEMORY;
+        } else if (EVP_MD_CTX_copy_ex(copy, src->md) != 1) {
+            EVP_MD_CTX_free(copy);
+            copy = NULL;
+            error = NTE_FAIL;
+        } else {
+            for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+                if (!g_hash[i].used) {
+                    slot = &g_hash[i];
+                    break;
+                }
+            }
+            if (slot == NULL) {
+                error = NTE_NO_MEMORY;
+            } else {
+                memset(slot, 0, sizeof *slot);
+                slot->used = true;
+                slot->prov = hProv;
+                slot->alg = src->alg;
+                slot->md = copy;
+                *phHash = hash_handle(slot);
+                found = TRUE;
             }
         }
-    }
-    if (slot != NULL) {
-        memset(slot, 0, sizeof *slot);
-        slot->used = true;
-        slot->prov = hProv;
-        slot->alg = src->alg;
-        slot->md = copy;
-        *phHash = hash_handle(slot);
-        found = TRUE;
     }
     LeaveCriticalSection(&g_lock);
     if (!found) {
         EVP_MD_CTX_free(copy);
-        return fail(NTE_BAD_HASH);
+        return fail(error);
     }
     return TRUE;
 }

@@ -34,8 +34,8 @@ growing set of subsystems that already pass it.
 | **P1 — pure algorithms** | ✅ 6/6 units | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` |
 | **P2 — DNS codec + client** | ✅ 24/24 | `docs/P2-DNS.md`, `docs/P2-DNS-CLIENT.md` |
 | **P2 — DHCP codec + client** | ✅ 24/24 | `docs/P2-DHCP.md`, `docs/P2-DHCP-CLIENT.md` |
-| **P3 — crypto engine** | ✅ OpenSSL 3.5.7 for i686 Windows, 6/6 KATs | `docs/P3-CRYPTO.md` |
-| **P3.1 — CSP SPI skeleton** | ✅ 7/7, 23 + 2 exports | `docs/P3-CSP-SPI.md` |
+| **P3 — crypto engine** | ✅ OpenSSL 3.5.7 for i686 Windows, 7/7 KATs + XP import gate | `docs/P3-CRYPTO.md` |
+| **P3.1 — CSP SPI skeleton** | ✅ 11/11, 23 + 2 exports | `docs/P3-CSP-SPI.md` |
 | P3.2+ — keys, RSA, CryptoAPI path | ⏳ next | — |
 | P4 — network stack | ❌ not started | — |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
@@ -94,8 +94,8 @@ oracle gates.
 anemos/statusdos/run.sh     # STATUS->DOS, proved against XP for 2^32 statuses (14/14)
 anemos/dns/run.sh           # DNS codec + client (24/24)
 anemos/dhcp/run.sh          # DHCP codec + client (24/24)
-anemos/crypto/run.sh        # OpenSSL KATs for the Windows target (6/6)
-anemos/csp/run.sh           # CSP SPI, loaded and called directly (7/7)
+anemos/crypto/run.sh        # OpenSSL KATs + XP import gate (7/7)
+anemos/csp/run.sh           # CSP SPI + XP import gate (11/11)
 tools/abi/run.sh            # G1, clang vs MSVC (15/15)
 ```
 
@@ -127,9 +127,9 @@ those are environment assets, not part of this repository.
 different rasteriser means different pixels, and identical looks is a stated
 goal. GDI stays.
 
-## Two measured P3 constraints
+## Three measured P3 constraints
 
-Both are documented rather than discovered late:
+All are documented rather than discovered late:
 
 - **XP verifies provider image signatures** before calling `CPAcquireContext`.
   An unsigned third-party DLL cannot be loaded through CryptoAPI on stock XP.
@@ -139,6 +139,11 @@ Both are documented rather than discovered late:
   if it replaced `rsaenh.dll`. The CSP seeds from `SystemFunction036`
   (`RtlGenRandom`), which is independent of the CSP, and must prove no
   recursion when installed.
+- **Wine is not XP.** The first engine build passed every KAT under Wine but
+  imported ten KERNEL32 functions that XP SP1 does not export: SRW locks,
+  condition variables, and a fiber API. The engine is now built with
+  `no-threads no-async no-thread-pool`, and both crypto and CSP gates compare
+  the PE's imports against the export tables of a pristine XP install.
 
 ## Read next
 
