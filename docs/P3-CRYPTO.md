@@ -124,7 +124,7 @@ rsaenh** and still returns. A host-side KAT cannot catch this recursion.
 | Step | Work | Gate |
 |---|---|---|
 | P3.0 | OpenSSL cross-build + KATs | ✅ 6/6, this document |
-| P3.1 | CSP skeleton exporting all 23+2 names; acquire/release; hash objects; `CPGenRandom`; property queries | a host test that `LoadLibrary`s and calls every entry point |
+| P3.1 | CSP skeleton exporting all 23+2 names; acquire/release; hash objects; `CPGenRandom`; property queries | ✅ 7/7 — `docs/P3-CSP-SPI.md` |
 | P3.2 | Symmetric keys: `CPGenKey`, `CPDeriveKey`, `CPEncrypt/Decrypt`, import/export | known-answer tests through the SPI |
 | P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | sign/verify and negative controls through the SPI |
 | P3.4 | Run the same tests inside XP via `LoadLibrary` | identical results to the host run |
