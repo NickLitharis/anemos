@@ -49,6 +49,8 @@ typedef struct AnemCspKey {
     DWORD key_len;
     BYTE iv[ANEM_BLOCK_SIZE];
     BYTE key[ANEM_MAX_KEY_LEN];
+    EVP_CIPHER_CTX *stream;
+    int stream_dir; /* 0 none, 1 encrypt, 2 decrypt */
 } AnemCspKey;
 
 static CRITICAL_SECTION g_lock;
@@ -135,12 +137,24 @@ static void secure_zero(void *dst, size_t n)
     }
 }
 
+static void key_reset_stream(AnemCspKey *key)
+{
+    EVP_CIPHER_CTX_free(key->stream);
+    key->stream = NULL;
+    key->stream_dir = 0;
+}
+
+static void key_clear(AnemCspKey *key)
+{
+    key_reset_stream(key);
+    secure_zero(key, sizeof *key);
+}
+
 static void destroy_keys_of(HCRYPTPROV hProv)
 {
     for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
         if (g_key[i].used && g_key[i].prov == hProv) {
-            secure_zero(&g_key[i], sizeof g_key[i]);
-            g_key[i].used = false;
+            key_clear(&g_key[i]);
         }
     }
 }
@@ -186,6 +200,47 @@ static void key_defaults(AnemCspKey *key, ALG_ID alg, DWORD flags)
     key->key_len = aes_key_len(alg);
 }
 
+/* Start (or continue) a streaming operation. EVP buffers a partial block
+ * internally, so CPEncrypt/CPDecrypt can be called with arbitrary chunk sizes
+ * and still emit whole blocks, as CryptoAPI expects. */
+static bool stream_start(AnemCspKey *key, int dir)
+{
+    const EVP_CIPHER *cipher;
+
+    if (key->stream != NULL && key->stream_dir == dir) {
+        return true;
+    }
+    key_reset_stream(key);
+    cipher = aes_cipher(key->alg, key->mode);
+    if (cipher == NULL) {
+        return false;
+    }
+    key->stream = EVP_CIPHER_CTX_new();
+    if (key->stream == NULL) {
+        return false;
+    }
+    if (dir == 1) {
+        if (EVP_EncryptInit_ex(key->stream, cipher, NULL, key->key,
+                               key->mode == CRYPT_MODE_CBC ? key->iv : NULL)
+            != 1) {
+            key_reset_stream(key);
+            return false;
+        }
+    } else {
+        if (EVP_DecryptInit_ex(key->stream, cipher, NULL, key->key,
+                               key->mode == CRYPT_MODE_CBC ? key->iv : NULL)
+            != 1) {
+            key_reset_stream(key);
+            return false;
+        }
+    }
+    if (key->padding == ZERO_PADDING) {
+        (void)EVP_CIPHER_CTX_set_padding(key->stream, 0);
+    }
+    key->stream_dir = dir;
+    return true;
+}
+
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     (void)reserved;
@@ -201,8 +256,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
                 g_hash[i].used = false;
             }
             if (g_key[i].used) {
-                secure_zero(&g_key[i], sizeof g_key[i]);
-                g_key[i].used = false;
+                key_clear(&g_key[i]);
             }
         }
         DeleteCriticalSection(&g_lock);
@@ -660,7 +714,7 @@ ANEM_CSP_API BOOL WINAPI CPGenKey(HCRYPTPROV hProv, ALG_ID Algid,
     key_defaults(slot, Algid, dwFlags);
     slot->prov = hProv;
     if (!SystemFunction036(slot->key, key_len)) {
-        secure_zero(slot, sizeof *slot);
+        key_clear(slot);
         LeaveCriticalSection(&g_lock);
         return fail(ERROR_GEN_FAILURE);
     }
@@ -741,7 +795,7 @@ ANEM_CSP_API BOOL WINAPI CPDestroyKey(HCRYPTPROV hProv, HCRYPTKEY hKey)
     EnterCriticalSection(&g_lock);
     key = key_lookup(hKey);
     if (key != NULL && key->prov == hProv) {
-        secure_zero(key, sizeof *key);
+        key_clear(key);
         found = TRUE;
     }
     LeaveCriticalSection(&g_lock);
@@ -770,16 +824,19 @@ ANEM_CSP_API BOOL WINAPI CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey,
         memcpy(&value, pbData, sizeof value);
         if (value == CRYPT_MODE_CBC || value == CRYPT_MODE_ECB) {
             key->mode = value;
+            key_reset_stream(key);
             ok = TRUE;
         }
     } else if (dwParam == KP_PADDING) {
         memcpy(&value, pbData, sizeof value);
         if (value == PKCS5_PADDING || value == ZERO_PADDING) {
             key->padding = value;
+            key_reset_stream(key);
             ok = TRUE;
         }
     } else if (dwParam == KP_IV) {
         memcpy(key->iv, pbData, ANEM_BLOCK_SIZE);
+        key_reset_stream(key);
         ok = TRUE;
     }
     LeaveCriticalSection(&g_lock);
@@ -939,11 +996,9 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                    LPDWORD pcbDataLen, DWORD cbBufLen)
 {
     AnemCspKey *key;
-    const EVP_CIPHER *cipher;
-    EVP_CIPHER_CTX *ctx;
     BYTE *input;
     DWORD input_len;
-    size_t required;
+    DWORD required;
     int out1 = 0;
     int out2 = 0;
     BOOL ok = FALSE;
@@ -952,11 +1007,11 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
     if (pbData == NULL || pcbDataLen == NULL) {
         return fail(ERROR_INVALID_PARAMETER);
     }
-    if (!fFinal || hHash != 0) {
-        return fail(NTE_NOT_SUPPORTED); /* streaming is the next slice */
+    if (hHash != 0) {
+        return fail(NTE_NOT_SUPPORTED);
     }
     input_len = *pcbDataLen;
-    if (input_len > cbBufLen || input_len > 0x7fffffffu) {
+    if (input_len > 0x7fffffffu) {
         return fail(NTE_BAD_LEN);
     }
     EnterCriticalSection(&g_lock);
@@ -965,27 +1020,24 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
     }
-    cipher = aes_cipher(key->alg, key->mode);
-    if (cipher == NULL) {
-        LeaveCriticalSection(&g_lock);
-        return fail(NTE_BAD_ALGID);
-    }
-    if (key->padding == ZERO_PADDING) {
-        if (input_len % ANEM_BLOCK_SIZE != 0u) {
-            LeaveCriticalSection(&g_lock);
-            return fail(NTE_BAD_LEN);
-        }
-        required = input_len;
-    } else if (key->padding == PKCS5_PADDING) {
-        required = ((size_t)input_len / ANEM_BLOCK_SIZE + 1u) * ANEM_BLOCK_SIZE;
-    } else {
+    if (key->padding != ZERO_PADDING && key->padding != PKCS5_PADDING) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_INVALID_PARAMETER);
     }
-    if ((size_t)cbBufLen < required) {
-        *pcbDataLen = (DWORD)required;
+    /* EVP buffers a partial block, so a non-final call emits at most the
+     * input length. Only the final PKCS#5 call can add a full block. */
+    required = input_len;
+    if (fFinal && key->padding == PKCS5_PADDING) {
+        required += ANEM_BLOCK_SIZE;
+    }
+    if (required > cbBufLen || input_len > cbBufLen) {
+        *pcbDataLen = required;
         LeaveCriticalSection(&g_lock);
         return fail(ERROR_MORE_DATA);
+    }
+    if (!stream_start(key, 1)) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_ENCRYPTION_FAILURE);
     }
     input = (BYTE *)malloc(input_len != 0u ? input_len : 1u);
     if (input == NULL) {
@@ -995,20 +1047,15 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
     if (input_len != 0u) {
         memcpy(input, pbData, input_len);
     }
-    ctx = EVP_CIPHER_CTX_new();
-    if (ctx != NULL
-        && EVP_EncryptInit_ex(ctx, cipher, NULL, key->key,
-                              key->mode == CRYPT_MODE_CBC ? key->iv : NULL) == 1) {
-        if (key->padding == ZERO_PADDING) {
-            (void)EVP_CIPHER_CTX_set_padding(ctx, 0);
-        }
-        if (EVP_EncryptUpdate(ctx, pbData, &out1, input, (int)input_len) == 1
-            && EVP_EncryptFinal_ex(ctx, pbData + out1, &out2) == 1) {
-            *pcbDataLen = (DWORD)(out1 + out2);
-            ok = TRUE;
-        }
+    if (EVP_EncryptUpdate(key->stream, pbData, &out1, input, (int)input_len) == 1
+        && (!fFinal
+            || EVP_EncryptFinal_ex(key->stream, pbData + out1, &out2) == 1)) {
+        *pcbDataLen = (DWORD)(out1 + out2);
+        ok = TRUE;
     }
-    EVP_CIPHER_CTX_free(ctx);
+    if (fFinal) {
+        key_reset_stream(key);
+    }
     secure_zero(input, input_len);
     free(input);
     LeaveCriticalSection(&g_lock);
@@ -1021,8 +1068,6 @@ ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
                                    LPDWORD pcbDataLen)
 {
     AnemCspKey *key;
-    const EVP_CIPHER *cipher;
-    EVP_CIPHER_CTX *ctx;
     BYTE *input;
     DWORD input_len;
     int out1 = 0;
@@ -1033,12 +1078,11 @@ ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
     if (pbData == NULL || pcbDataLen == NULL) {
         return fail(ERROR_INVALID_PARAMETER);
     }
-    if (!fFinal || hHash != 0) {
-        return fail(NTE_NOT_SUPPORTED); /* streaming is the next slice */
+    if (hHash != 0) {
+        return fail(NTE_NOT_SUPPORTED);
     }
     input_len = *pcbDataLen;
-    if (input_len == 0u || input_len % ANEM_BLOCK_SIZE != 0u
-        || input_len > 0x7fffffffu) {
+    if (input_len > 0x7fffffffu) {
         return fail(NTE_BAD_LEN);
     }
     EnterCriticalSection(&g_lock);
@@ -1047,35 +1091,31 @@ ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
     }
-    cipher = aes_cipher(key->alg, key->mode);
-    if (cipher == NULL) {
-        LeaveCriticalSection(&g_lock);
-        return fail(NTE_BAD_ALGID);
-    }
     if (key->padding != ZERO_PADDING && key->padding != PKCS5_PADDING) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_INVALID_PARAMETER);
     }
-    input = (BYTE *)malloc(input_len);
+    if (!stream_start(key, 2)) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_DECRYPTION_FAILURE);
+    }
+    input = (BYTE *)malloc(input_len != 0u ? input_len : 1u);
     if (input == NULL) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_NO_MEMORY);
     }
-    memcpy(input, pbData, input_len);
-    ctx = EVP_CIPHER_CTX_new();
-    if (ctx != NULL
-        && EVP_DecryptInit_ex(ctx, cipher, NULL, key->key,
-                              key->mode == CRYPT_MODE_CBC ? key->iv : NULL) == 1) {
-        if (key->padding == ZERO_PADDING) {
-            (void)EVP_CIPHER_CTX_set_padding(ctx, 0);
-        }
-        if (EVP_DecryptUpdate(ctx, pbData, &out1, input, (int)input_len) == 1
-            && EVP_DecryptFinal_ex(ctx, pbData + out1, &out2) == 1) {
-            *pcbDataLen = (DWORD)(out1 + out2);
-            ok = TRUE;
-        }
+    if (input_len != 0u) {
+        memcpy(input, pbData, input_len);
     }
-    EVP_CIPHER_CTX_free(ctx);
+    if (EVP_DecryptUpdate(key->stream, pbData, &out1, input, (int)input_len) == 1
+        && (!fFinal
+            || EVP_DecryptFinal_ex(key->stream, pbData + out1, &out2) == 1)) {
+        *pcbDataLen = (DWORD)(out1 + out2);
+        ok = TRUE;
+    }
+    if (fFinal) {
+        key_reset_stream(key);
+    }
     secure_zero(input, input_len);
     free(input);
     LeaveCriticalSection(&g_lock);
@@ -1171,6 +1211,10 @@ ANEM_CSP_API BOOL WINAPI CPDuplicateKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
         }
         if (slot != NULL) {
             *slot = *src;
+            /* A duplicated key starts its own stream; sharing the EVP state
+             * would interleave two callers' blocks. */
+            slot->stream = NULL;
+            slot->stream_dir = 0;
             *phKey = key_handle(slot);
             found = TRUE;
         }

@@ -46,6 +46,7 @@ Not a roadmap — measured state as of today.
 | **P3 groundwork — crypto engine** | ✅ | OpenSSL 3.5.7 cross-built for i686 Windows (no-threads/no-async/thread-pool, XP-clean import surface); SHA-1/256/512, HMAC, AES-CBC/GCM and RSA KATs pass, 7/7, imports checked against `xp-pristine.vmdk` (`docs/P3-CRYPTO.md`) |
 | **P3.1 — CSP SPI skeleton** | ✅ | `anemos/csp/` — all 23 required + 2 optional `CP*` exports, contexts, MD5/SHA-1/SHA-256, `CPGenRandom` via `SystemFunction036`, provider params; XP import gate + LoadLibrary harness 11/11 (`docs/P3-CSP-SPI.md`) |
 | **P3.2a — symmetric keys + AES** | ✅ | AES-128/192/256 key objects, CBC/ECB, PKCS#5/zero padding, `PLAINTEXTKEYBLOB` import/export/duplicate, `CPDeriveKey`, one-shot `CPEncrypt`/`CPDecrypt`; SP 800-38A KATs through the SPI, 11/11 (`docs/P3-CSP-SPI.md`) |
+| **P3.2b — streaming cipher** | ✅ | Multi-call `CPEncrypt`/`CPDecrypt` with per-key EVP buffering; 5+11+16-byte encryption reproduces SP 800-38A, PKCS#5 and zero-padding streaming tests, 11/11 (`docs/P3-CSP-SPI.md`) |
 
 The method is proven, P1 is written and gated
 (`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
@@ -111,7 +112,7 @@ Each phase begins only when the previous gate passes.
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
-| **P3** | Crypto: engine (**done, XP-safe**), CSP SPI skeleton (**done**), symmetric keys/AES (**done**), then streaming and RSA; the `rsaenh` slot | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
+| **P3** | Crypto: engine (**done, XP-safe**), CSP SPI skeleton (**done**), symmetric keys/AES (**done**), streaming cipher (**done**), then RSA; the `rsaenh` slot | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
 
@@ -218,8 +219,13 @@ nobody has legally rewritten.
    `PLAINTEXTKEYBLOB`, derivation and one-shot cipher; SP 800-38A vectors and
    negative controls through the SPI (`docs/P3-CSP-SPI.md`). One-shot only:
    multi-call streaming returns `NTE_NOT_SUPPORTED`.
-10. **P3.2b — streaming cipher**, next: `CPEncrypt`/`CPDecrypt` across multiple
-    calls with CryptoAPI's block-buffering semantics, then RSA (P3.3).
+10. ~~**P3.2b — streaming cipher**: `CPEncrypt`/`CPDecrypt` across multiple
+    calls with CryptoAPI's block-buffering semantics, then RSA (P3.3).~~
+    **P3.2b complete 2026-10-20.** Per-key EVP stream state, multi-call
+    block buffering, PKCS#5/zero padding, reset on parameter changes/final;
+    multi-call vectors through the SPI (`docs/P3-CSP-SPI.md`).
+11. **P3.3 — RSA**, next: key blobs (`PUBLICKEYBLOB`/`PRIVATEKEYBLOB`),
+    `CPSignHash`/`CPVerifySignature`, `CPGetUserKey`, then the XP guest run.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the

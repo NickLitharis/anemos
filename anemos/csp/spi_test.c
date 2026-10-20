@@ -429,10 +429,6 @@ static void check_keys(HCRYPTPROV prov)
     check(pEncrypt(prov, key, 0, TRUE, 0, buf, &len, 16) == FALSE
           && GetLastError() == (DWORD)ERROR_MORE_DATA && len == 32u,
           "short encrypt buffer reports the required size");
-    len = 16;
-    check(pEncrypt(prov, key, 0, FALSE, 0, buf, &len, sizeof buf) == FALSE
-          && GetLastError() == (DWORD)NTE_NOT_SUPPORTED,
-          "multi-call encryption is explicitly unsupported");
 
     check(export_plain(prov, key, blob1, &len1), "export PLAINTEXTKEYBLOB");
     memcpy(&header, blob1, sizeof header);
@@ -546,6 +542,135 @@ static void check_keys(HCRYPTPROV prov)
     check(pDecrypt(prov, key, 0, TRUE, 0, buf, &len) == FALSE,
           "tampered PKCS5 ciphertext is rejected");
     check(pDestroyKey(prov, key) == TRUE, "destroy AES-128 key");
+}
+
+static DWORD encrypt_chunk(HCRYPTPROV prov, HCRYPTKEY key, const BYTE *in,
+                           DWORD in_len, BOOL final, BYTE *out, DWORD cap,
+                           bool *ok)
+{
+    DWORD len = in_len;
+
+    memcpy(out, in, in_len);
+    *ok = pEncrypt(prov, key, 0, final, 0, out, &len, cap) == TRUE;
+    return len;
+}
+
+static DWORD decrypt_chunk(HCRYPTPROV prov, HCRYPTKEY key, const BYTE *in,
+                           DWORD in_len, BOOL final, BYTE *out, bool *ok)
+{
+    DWORD len = in_len;
+
+    memcpy(out, in, in_len);
+    *ok = pDecrypt(prov, key, 0, final, 0, out, &len) == TRUE;
+    return len;
+}
+
+static void check_streaming(HCRYPTPROV prov)
+{
+    static const BYTE key_bytes[16] = {
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+        0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+    };
+    static const BYTE iv[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    static const BYTE pt[32] = {
+        0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
+        0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+        0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c,
+        0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51
+    };
+    static const BYTE ct[32] = {
+        0x76, 0x49, 0xab, 0xac, 0x81, 0x19, 0xb2, 0x46,
+        0xce, 0xe9, 0x8e, 0x9b, 0x12, 0xe9, 0x19, 0x7d,
+        0x50, 0x86, 0xcb, 0x9b, 0x50, 0x72, 0x19, 0xee,
+        0x95, 0xdb, 0x11, 0x3a, 0x91, 0x76, 0x78, 0xb2
+    };
+    HCRYPTKEY key = 0;
+    BYTE chunk[64];
+    BYTE got[64];
+    BYTE plain[64];
+    BYTE first[16];
+    BYTE second[16];
+    DWORD len;
+    DWORD total;
+    bool ok;
+
+    check(import_plain(prov, CALG_AES_128, key_bytes, 16, CRYPT_EXPORTABLE,
+                       &key), "streaming key import");
+    check(set_param_u32(prov, key, KP_MODE, CRYPT_MODE_CBC)
+          && set_iv(prov, key, iv)
+          && set_param_u32(prov, key, KP_PADDING, ZERO_PADDING),
+          "streaming params");
+
+    total = 0;
+    len = encrypt_chunk(prov, key, pt, 5, FALSE, chunk, sizeof chunk, &ok);
+    check(ok && len == 0u, "stream: 5 bytes buffered, no output");
+    len = encrypt_chunk(prov, key, pt + 5, 11, FALSE, chunk, sizeof chunk, &ok);
+    check(ok && len == 16u, "stream: 11 more emits the first block");
+    memcpy(got + total, chunk, len);
+    total += len;
+    len = encrypt_chunk(prov, key, pt + 16, 16, TRUE, chunk, sizeof chunk, &ok);
+    check(ok && len == 16u, "stream: final emits the second block");
+    memcpy(got + total, chunk, len);
+    total += len;
+    check(total == 32u && memcmp(got, ct, 32) == 0,
+          "streaming ciphertext matches SP 800-38A");
+
+    total = 0;
+    len = decrypt_chunk(prov, key, ct, 7, FALSE, chunk, &ok);
+    check(ok && len == 0u, "decrypt stream: 7 bytes buffered");
+    len = decrypt_chunk(prov, key, ct + 7, 9, FALSE, chunk, &ok);
+    check(ok && len == 16u, "decrypt stream: 16 bytes emits plaintext");
+    memcpy(plain + total, chunk, len);
+    total += len;
+    len = decrypt_chunk(prov, key, ct + 16, 16, TRUE, chunk, &ok);
+    check(ok && len == 16u, "decrypt stream: final block");
+    memcpy(plain + total, chunk, len);
+    total += len;
+    check(total == 32u && memcmp(plain, pt, 32) == 0,
+          "streaming decrypt matches SP 800-38A");
+
+    check(set_param_u32(prov, key, KP_PADDING, PKCS5_PADDING)
+          && set_iv(prov, key, iv), "PKCS5 stream reset");
+    total = 0;
+    len = encrypt_chunk(prov, key, pt, 5, FALSE, chunk, sizeof chunk, &ok);
+    check(ok && len == 0u, "PKCS5 stream: 5 bytes buffered");
+    len = encrypt_chunk(prov, key, pt + 5, 15, TRUE, chunk, sizeof chunk, &ok);
+    check(ok && len == 32u, "PKCS5 stream: final pads to two blocks");
+    memcpy(got, chunk, len);
+    total = 0;
+    len = decrypt_chunk(prov, key, got, 16, FALSE, chunk, &ok);
+    check(ok && len <= 16u, "PKCS5 decrypt stream: first call buffers");
+    memcpy(plain + total, chunk, len);
+    total += len;
+    len = decrypt_chunk(prov, key, got + 16, 16, TRUE, chunk, &ok);
+    check(ok && len <= 20u, "PKCS5 decrypt stream: final completes");
+    memcpy(plain + total, chunk, len);
+    total += len;
+    check(total == 20u && memcmp(plain, pt, 20) == 0,
+          "PKCS5 streaming round-trip");
+
+    check(set_param_u32(prov, key, KP_PADDING, ZERO_PADDING)
+          && set_iv(prov, key, iv), "zero-padding stream reset");
+    len = 5;
+    memcpy(chunk, pt, 5);
+    check(pEncrypt(prov, key, 0, TRUE, 0, chunk, &len, sizeof chunk) == FALSE,
+          "zero padding rejects a partial final block");
+
+    memcpy(first, pt, 16);
+    len = 16;
+    check(pEncrypt(prov, key, 0, TRUE, 0, first, &len, sizeof first) == TRUE
+          && len == 16u, "one-shot after stream resets");
+    memcpy(second, pt, 16);
+    len = 16;
+    check(pEncrypt(prov, key, 0, TRUE, 0, second, &len, sizeof second) == TRUE
+          && len == 16u, "second one-shot");
+    check(memcmp(first, second, 16) == 0,
+          "each final operation restarts from the configured IV");
+
+    check(pDestroyKey(prov, key) == TRUE, "destroy streaming key");
 }
 
 static void check_stubs(HCRYPTPROV prov, HCRYPTHASH hash)
@@ -666,6 +791,7 @@ int main(int argc, char **argv)
                "ba7816bf8f01cfea414140de5dae2223"
                "b00361a396177a9cb410ff61f20015ad");
     check_keys(prov);
+    check_streaming(prov);
     check_provider_params(prov);
     check_stubs(prov, 0);
     check(pRelease(prov, 0) == TRUE, "CPReleaseContext final");
