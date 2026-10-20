@@ -12,7 +12,7 @@ cp -r /home/marocos/winxp_source/Source/XPSP1/NT/base/ntos ntos
 graft build .
 
 # 2. generate the map
-cd /home/marocos/winxp_source
+cd /home/marocos/anemos
 python3 tools/build_codemap.py
 ```
 
