@@ -106,7 +106,8 @@ typedef enum AnemDhcpStatus {
     ANEM_DHCP_TOO_MANY,     /* more than ANEM_DHCP_MAX_OPTIONS entries */
     ANEM_DHCP_NOSPACE,      /* output buffer too small */
     ANEM_DHCP_FORMAT,       /* typed reader: option has the wrong length */
-    ANEM_DHCP_NOT_FOUND     /* typed reader: option absent */
+    ANEM_DHCP_NOT_FOUND,    /* typed reader: option absent */
+    ANEM_DHCP_BADSTATE      /* client: operation not valid in this state */
 } AnemDhcpStatus;
 
 typedef struct AnemDhcpHeader {
@@ -170,6 +171,14 @@ AnemDhcpStatus anem_dhcp_build_begin(AnemDhcpWriter *w, void *buf, size_t cap,
                                      const AnemDhcpHeader *hdr);
 AnemDhcpStatus anem_dhcp_build_option(AnemDhcpWriter *w, uint8_t code,
                                       const void *data, uint8_t len);
+/* Network-order integer options. Use these rather than passing a host
+ * integer to build_option(), which copies bytes verbatim. */
+AnemDhcpStatus anem_dhcp_build_option_u8(AnemDhcpWriter *w, uint8_t code,
+                                         uint8_t value);
+AnemDhcpStatus anem_dhcp_build_option_u16(AnemDhcpWriter *w, uint8_t code,
+                                          uint16_t value);
+AnemDhcpStatus anem_dhcp_build_option_u32(AnemDhcpWriter *w, uint8_t code,
+                                          uint32_t value);
 AnemDhcpStatus anem_dhcp_build_finish(AnemDhcpWriter *w, size_t *out_len);
 
 /* First option with `code` after the `nth` earlier ones (nth 0 = first).

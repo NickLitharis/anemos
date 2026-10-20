@@ -5,10 +5,11 @@ messages (RFC 2131) and their options (RFC 2132). It covers the fixed 236-byte
 BOOTP header, the magic cookie, the option stream, the option vocabulary a
 client needs, and a builder for DISCOVER/REQUEST-style messages.
 
-It is a codec, not a client state machine. No socket, no timer, no lease, no
-retransmission. That separation is deliberate: the bytes are fixed by the RFC
-and can be proved without a VM; the state machine comes next and will be judged
-by the same oracle.
+It is a codec, not a client state machine. The state machine is a separate
+unit on top (`anemos/dhcp/dhcp_client.{h,c}`, `docs/P2-DHCP-CLIENT.md`): it owns
+the socket-free DISCOVER/OFFER/REQUEST/ACK flow and the timers. That separation
+is deliberate — the bytes are fixed by the RFC and can be proved without a VM,
+and the machine can then be diffed independently.
 
 There is **no Microsoft source in this directory**. RFC 2131/2132 are the
 specification. XP's DHCP client behaviour is not claimed here.
@@ -83,9 +84,20 @@ Consequences worth stating:
   area with thousands of zeros before END is rejected with `TOO_MANY`; padding
   after END has no such cost.
 
+## Integer options are network order
+
+`anem_dhcp_build_option()` copies bytes verbatim, which is right for opaque
+options and wrong for integers: passing a host `uint32_t` produces a
+little-endian payload that looks fine in a loopback test and is wrong on the
+wire. The typed builders `anem_dhcp_build_option_u8/u16/u32()` encode network
+order and are what the client and the tests use. This was a real bug in the
+client's first REQUEST, caught by the scenario suite — recorded here because the
+same trap will be there for every future builder caller.
+
 ## Verification
 
-`anemos/dhcp/run.sh` — 12 checks, all able to fail:
+`anemos/dhcp/run.sh` — 24 checks for the codec and client together, all able
+to fail. The codec-specific ones:
 
 1. **Vector suite, i686 PE under Wine.** Nine golden messages authored from the
    RFC: DISCOVER, OFFER, REQUEST, ACK, NAK, RELEASE, INFORM, a message with
@@ -105,7 +117,7 @@ Consequences worth stating:
    and UBSan. Both must agree on status, exact bytes (FNV-1a) and reparse
    status; the weakened build must disagree on the same corpus.
 4. **Freestanding object + size budget.** `dhcp.c` compiles for
-   `i686-windows-msvc` and its `.text` is **1,899 bytes**, under the 8 KB
+   `i686-windows-msvc` and its `.text` is **2,003 bytes**, under the 8 KB
    per-translation-unit budget.
 
 Corpus coverage (from `out/got.txt`): 1,146 accepted, 2,162 `SHORT`, 527
@@ -140,15 +152,18 @@ anemos/dhcp/run.sh
 - **No minimum-size padding policy.** RFC 2131 recommends clients pad to at
   least 300 bytes. The builder emits END and no padding; padding is a sender
   policy layered on top, not part of the encoding.
-- **No state machine.** DISCOVER/OFFER/REQUEST/ACK transitions, timers,
-  retransmission, lease renewal and DECLINE/RELEASE policy are the next unit.
+- **DECLINE and RELEASE are not triggered.** The builder can make either
+  packet; the state machine (peer document) does not send them yet. Decline
+  needs ARP conflict detection and RELEASE needs a shutdown hook.
 
 ## What this does and does not prove
 
 It proves the codec matches RFC 2131/2132 as read by two independent
 implementations across 4,095 accepted and rejected inputs, and that every
 accepted message is reproduced exactly. It proves the destination-ABI build is
-clean and small.
+clean and small. The client state machine is verified separately by a scenario
+suite and a six-trace differential against a second implementation
+(`docs/P2-DHCP-CLIENT.md`).
 
 It does **not** prove XP's DHCP client behaves identically. That is a
 behavioural question, and the oracle is the guest. It becomes testable once the
