@@ -2,16 +2,19 @@
  * ntdll!RtlNtStatusToDosError performs.
  *
  * The table is not transcribed from Microsoft's source (banned by SCOPE.md);
- * it was extracted clean-room from XP's *behaviour*: a guest-side probe
- * (sdos_probe.c) called the shipped ntdll export for every one of the 2^32
- * possible NTSTATUS values and recorded what it returned, run-length
- * encoded. The guest and this table are two observations of the same oracle.
+ * it holds answers *observed from XP's behaviour*. A guest-side probe
+ * (mv_probe.c) calls the shipped ntdll export for all 2^32 possible NTSTATUS
+ * values, compares each answer with this model, and writes back only the
+ * disagreements as a certificate (check_cert.py); learn.py folds those into
+ * model.txt. The guest and this table are two observations of one oracle,
+ * and the certificate is what proves they agree.
  *
  * The API deliberately matches XP's export shape — ULONG-returning, total,
  * no failure mode — because that is the ABI any later swap must present.
  *
- * Lookup is a binary search over ascending run starts; run i covers
- * [k_runs[i].first, k_runs[i+1].first), and the last run ends at 2^32.
+ * Lookup applies XP's rules in XP's order, then an exact-match table (sorted
+ * ascending, binary search). See statusdos.c for the rules and their
+ * provenance.
  */
 #ifndef ANEMOS_STATUSDOS_H
 #define ANEMOS_STATUSDOS_H

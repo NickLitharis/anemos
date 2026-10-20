@@ -38,10 +38,10 @@ Not a roadmap — measured state as of today.
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
-| **Any Anemos code** | ✅ **started** | `anemos/{md5,sha1,base64,crc32,nls}/` — five units of P1, RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors (`anemos/*/run.sh`, 5/5 each incl. negative control) |
+| **Anemos code — P1** | ✅ **6/6** | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` — RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors, plus the `STATUS→DOS` map verified against live XP for **all 2^32 statuses** (`docs/P1-STATUSDOS.md`) |
 
-The method is proven, and the first Anemos code is written and gated
-(`anemos/{md5,sha1,base64,crc32,nls}/`; shared status codes in
+The method is proven, and P1 is written and gated
+(`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
 `anemos/include/`). Everything from here is substitution work behind stable
 interfaces.
 
@@ -101,7 +101,7 @@ Each phase begins only when the previous gate passes.
 | Phase | Work | Gate |
 |---|---|---|
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
-| **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors + randomised differential vs XP; fuzzed clean |
+| **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec (205 C files, RFC 1035), then DHCP | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: an OpenSSL-backed CSP in the empty `rsaenh` slot | XP's own crypto self-tests pass; known-answer tests for every exposed algorithm |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
@@ -150,20 +150,19 @@ nobody has legally rewritten.
 2. ~~**G2 — conformance runner skeleton**, validated on the two kernels we already have.~~
    **Passed 2026-10-18** (`docs/G2-CONFORMANCE-RUNNER.md`): reports IDENTICAL on
    `xp.vmdk` vs `xp-pristine.vmdk`, and fails when it should.
-3. **P1 — first replacement**, to exercise the runner on something real: CRC-32 and
-   friends are host-side work, but the first subject swap (`ntoskrnl.exe` or a library)
-   runs through this runner. — **in progress 2026-10-19**: MD5, SHA-1, Base64,
-   CRC-32 and NLS tables landed (`anemos/{md5,sha1,base64,crc32,nls}/`), gated on
-   published vectors + negative controls; XP's base64 ABI is
-   `crypt32!CryptBinaryToString/CryptStringToBinary` (advapi32 has neither on this
-   build); XP exports no CRC-32, so that unit is vector-only. The `STATUS→DOS` map
-   (item 6 of 6) had its raw-dump extraction attempt: the probe, toolchain and
-   clean-room method are built and verified, and one genuine XP run yielded a
-   byte-perfect prefix (statuses 0–0x2028669D), but the full dump is
-   **structurally infeasible** (the customer region is near-injective: >6 GB of
-   triples, and the run cap expires before ever reaching the 0xC0000000+ anchor
-   region) — see `docs/P1-STATUSDOS.md`. Rework planned: a model-verification
-   probe that emits mismatches only (KB-scale output).
+3. ~~**P1 — first replacement**, to exercise the runner on something real.~~ **P1 complete
+   2026-10-20, 6/6.** MD5, SHA-1, Base64, CRC-32 and NLS tables are gated on published
+   vectors + negative controls (`anemos/{md5,sha1,base64,crc32,nls}/`); XP's base64 ABI is
+   `crypt32!CryptBinaryToString/CryptStringToBinary` (advapi32 has neither on this build);
+   XP exports no CRC-32, so that unit is vector-only. The `STATUS→DOS` map (item 6) is
+   **verified against live XP for all 2^32 statuses** — six rules plus an 832-entry table,
+   proved by an in-guest certificate with zero mismatches
+   (`docs/P1-STATUSDOS.md`, `anemos/statusdos/run.sh` 14/14). Its raw-dump predecessor was
+   structurally infeasible (>6 GB of triples and never reaching `0xC0000000+`); the
+   model-verification probe that replaced it emits mismatches only and settled the map in
+   three walks. Two documented mappings turned out to be wrong and XP won, as it must.
+4. **P2 — the DNS codec (RFC 1035)**, next: host-side parse/serialise with byte-identical
+   round-trips and identical error codes on malformed input, then the DHCP client behind it.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
