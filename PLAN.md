@@ -40,11 +40,13 @@ Not a roadmap — measured state as of today.
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
 | **Anemos code — P1** | ✅ **6/6** | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` — RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors, plus the `STATUS→DOS` map verified against live XP for **all 2^32 statuses** (`docs/P1-STATUSDOS.md`) |
 | **Anemos code — P2 DNS codec** | ✅ | `anemos/dns/` — RFC 1035 parse/serialise, byte-identical canonical round-trip, 1,365-case differential corpus against an independent Python implementation, 12/12 (`docs/P2-DNS.md`) |
+| **Anemos code — P2 DHCP codec** | ✅ | `anemos/dhcp/` — RFC 2131/2132 parse/serialise/builder, exact round-trip for every accepted message, 4,095-case differential corpus, 12/12 (`docs/P2-DHCP.md`) |
 
 The method is proven, P1 is written and gated
 (`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
-`anemos/include/`), and P2's DNS codec is gated (`anemos/dns/`). Everything from
-here is substitution work behind stable interfaces.
+`anemos/include/`), and P2's DNS and DHCP codecs are gated
+(`anemos/{dns,dhcp}/`). Everything from here is substitution work behind stable
+interfaces.
 
 ---
 
@@ -103,7 +105,7 @@ Each phase begins only when the previous gate passes.
 |---|---|---|
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
-| **P2** | Wire formats: DNS codec (**done** — `anemos/dns/`), then DHCP | identical bytes out, identical error codes on malformed input |
+| **P2** | Wire formats: DNS codec (**done**), DHCP codec (**done**), DHCP client state machine (next) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: an OpenSSL-backed CSP in the empty `rsaenh` slot | XP's own crypto self-tests pass; known-answer tests for every exposed algorithm |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
@@ -171,9 +173,17 @@ nobody has legally rewritten.
    Byte-identical round-trips are pinned by seven hand-written RFC vectors; the
    negative control proves the corpus gate can fail. XP's resolver behaviour is
    not claimed yet — it needs the socket path in P4.
-5. **P2 continued — the DHCP client** (RFC 2131/2132), next: the same shape —
+5. ~~**P2 continued — the DHCP client (RFC 2131/2132)**: the same shape —
    host-side codec, independent implementation as the oracle, canonical
-   round-trip, then the client state machine.
+   round-trip, then the client state machine.~~ **DHCP codec complete
+   2026-10-20.** `anemos/dhcp/` — RFC 2131/2132 header, options and builder;
+   every accepted message round-trips byte for byte; a 4,095-case differential
+   corpus against an independent Python implementation, 12/12
+   (`docs/P2-DHCP.md`). Known gap: option overload (RFC 2132 §9.3) is not
+   interpreted.
+6. **P2 continued — the DHCP client state machine**, next: DISCOVER/OFFER/
+   REQUEST/ACK transitions, retransmission and lease timers, with the same
+   differential oracle. Then the DNS client, then the socket path in P4.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
@@ -194,4 +204,5 @@ interfaces do not move.
 | `docs/KERNEL-BOOTS-XP.md` | The boot result and how to reproduce it |
 | `docs/P1-STATUSDOS.md` | The STATUS→DOS map proved against XP for all 2^32 statuses |
 | `docs/P2-DNS.md` | DNS codec: model, canonical compression, the differential gate, limits |
+| `docs/P2-DHCP.md` | DHCP codec: exact round-trip, option model, the differential gate, limits |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
