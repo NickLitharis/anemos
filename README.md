@@ -38,7 +38,8 @@ growing set of subsystems that already pass it.
 | **P2 — DHCP codec + client** | ✅ 24/24 | `docs/P2-DHCP.md`, `docs/P2-DHCP-CLIENT.md` |
 | **P3 — crypto engine** | ✅ OpenSSL 3.5.7 for i686 Windows, 7/7 KATs + XP import gate | `docs/P3-CRYPTO.md` |
 | **P3.1 — CSP SPI skeleton** | ✅ 11/11, 23 + 2 exports | `docs/P3-CSP-SPI.md` |
-| P3.2+ — keys, RSA, CryptoAPI path | ⏳ next | — |
+| **P3.2a — symmetric keys + AES** | ✅ AES-128/192/256, CBC/ECB, PLAINTEXTKEYBLOB, SPI KATs | `docs/P3-CSP-SPI.md` |
+| P3.2b+ — streaming, RSA, CryptoAPI path | ⏳ next | — |
 | P4 — network stack | ❌ not started | — |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
 
@@ -128,8 +129,8 @@ not published here.
 - **P2 — wire formats.** DNS (RFC 1035) and DHCP (RFC 2131/2132), each with a
   codec, a client, and an independent oracle. Done.
 - **P3 — crypto.** A modern engine (OpenSSL 3.5.7) behind the empty `rsaenh`
-  slot. The engine and the provider SPI are proved; key operations and the
-  CryptoAPI path remain.
+  slot. The engine, the provider SPI and one-shot AES key objects are proved;
+  streaming, RSA and the CryptoAPI path remain.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
   last.
 - **P5 — the kernel proper.** Memory manager, object manager, scheduler, I/O:

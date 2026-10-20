@@ -9,6 +9,7 @@
  *
  * usage: spi_test.exe anemosp.dll
  */
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -55,6 +56,23 @@ typedef BOOL (WINAPI *FnGetProvParam)(HCRYPTPROV, DWORD, LPBYTE, LPDWORD,
 typedef BOOL (WINAPI *FnGenKey)(HCRYPTPROV, ALG_ID, DWORD, HCRYPTKEY *);
 typedef BOOL (WINAPI *FnSignHash)(HCRYPTPROV, HCRYPTHASH, DWORD, LPCWSTR,
                                   DWORD, LPBYTE, LPDWORD);
+typedef BOOL (WINAPI *FnDeriveKey)(HCRYPTPROV, ALG_ID, HCRYPTHASH, DWORD,
+                                   HCRYPTKEY *);
+typedef BOOL (WINAPI *FnDestroyKey)(HCRYPTPROV, HCRYPTKEY);
+typedef BOOL (WINAPI *FnGetKeyParam)(HCRYPTPROV, HCRYPTKEY, DWORD, LPBYTE,
+                                     LPDWORD, DWORD);
+typedef BOOL (WINAPI *FnSetKeyParam)(HCRYPTPROV, HCRYPTKEY, DWORD,
+                                     const BYTE *, DWORD);
+typedef BOOL (WINAPI *FnImportKey)(HCRYPTPROV, const BYTE *, DWORD, HCRYPTKEY,
+                                   DWORD, HCRYPTKEY *);
+typedef BOOL (WINAPI *FnExportKey)(HCRYPTPROV, HCRYPTKEY, HCRYPTKEY, DWORD,
+                                   DWORD, LPBYTE, LPDWORD);
+typedef BOOL (WINAPI *FnEncrypt)(HCRYPTPROV, HCRYPTKEY, HCRYPTHASH, BOOL, DWORD,
+                                 LPBYTE, LPDWORD, DWORD);
+typedef BOOL (WINAPI *FnDecrypt)(HCRYPTPROV, HCRYPTKEY, HCRYPTHASH, BOOL, DWORD,
+                                 LPBYTE, LPDWORD);
+typedef BOOL (WINAPI *FnDuplicateKey)(HCRYPTPROV, HCRYPTKEY, LPDWORD, DWORD,
+                                      HCRYPTKEY *);
 
 static FnAcquire pAcquire;
 static FnRelease pRelease;
@@ -67,6 +85,15 @@ static FnDuplicateHash pDuplicateHash;
 static FnGetProvParam pGetProvParam;
 static FnGenKey pGenKey;
 static FnSignHash pSignHash;
+static FnDeriveKey pDeriveKey;
+static FnDestroyKey pDestroyKey;
+static FnGetKeyParam pGetKeyParam;
+static FnSetKeyParam pSetKeyParam;
+static FnImportKey pImportKey;
+static FnExportKey pExportKey;
+static FnEncrypt pEncrypt;
+static FnDecrypt pDecrypt;
+static FnDuplicateKey pDuplicateKey;
 
 static const char *k_required[] = {
     "CPAcquireContext", "CPReleaseContext", "CPGenKey", "CPDeriveKey",
@@ -216,6 +243,311 @@ static void check_provider_params(HCRYPTPROV prov)
     }
 }
 
+/* ---- key objects and AES ---- */
+
+static bool import_plain(HCRYPTPROV prov, ALG_ID alg, const BYTE *key,
+                         DWORD key_len, DWORD flags, HCRYPTKEY *out)
+{
+    BYTE blob[sizeof(BLOBHEADER) + sizeof(DWORD) + 32];
+    BLOBHEADER header;
+    DWORD cb = key_len;
+
+    memset(&header, 0, sizeof header);
+    header.bType = PLAINTEXTKEYBLOB;
+    header.bVersion = CUR_BLOB_VERSION;
+    header.aiKeyAlg = alg;
+    memcpy(blob, &header, sizeof header);
+    memcpy(blob + sizeof header, &cb, sizeof cb);
+    memcpy(blob + sizeof header + sizeof cb, key, key_len);
+    return pImportKey(prov, blob, (DWORD)(sizeof header + sizeof cb + key_len),
+                      0, flags, out) == TRUE;
+}
+
+static bool export_plain(HCRYPTPROV prov, HCRYPTKEY key, BYTE *blob,
+                         DWORD *blob_len)
+{
+    DWORD len = 0;
+
+    if (pExportKey(prov, key, 0, PLAINTEXTKEYBLOB, 0, NULL, &len) != FALSE
+        || GetLastError() != (DWORD)ERROR_MORE_DATA || len > 64u) {
+        return false;
+    }
+    if (pExportKey(prov, key, 0, PLAINTEXTKEYBLOB, 0, blob, &len) != TRUE) {
+        return false;
+    }
+    *blob_len = len;
+    return true;
+}
+
+static bool set_param_u32(HCRYPTPROV prov, HCRYPTKEY key, DWORD param,
+                          DWORD value)
+{
+    return pSetKeyParam(prov, key, param, (const BYTE *)&value, 0) == TRUE;
+}
+
+static bool set_iv(HCRYPTPROV prov, HCRYPTKEY key, const BYTE iv[16])
+{
+    return pSetKeyParam(prov, key, KP_IV, iv, 0) == TRUE;
+}
+
+static bool encrypt_block(HCRYPTPROV prov, HCRYPTKEY key, const BYTE *plain,
+                          DWORD plain_len, BYTE *buf, DWORD *len,
+                          DWORD capacity)
+{
+    memcpy(buf, plain, plain_len);
+    *len = plain_len;
+    return pEncrypt(prov, key, 0, TRUE, 0, buf, len, capacity) == TRUE;
+}
+
+static bool decrypt_block(HCRYPTPROV prov, HCRYPTKEY key, const BYTE *cipher,
+                          DWORD cipher_len, BYTE *buf, DWORD *len)
+{
+    memcpy(buf, cipher, cipher_len);
+    *len = cipher_len;
+    return pDecrypt(prov, key, 0, TRUE, 0, buf, len) == TRUE;
+}
+
+static void check_keys(HCRYPTPROV prov)
+{
+    static const BYTE k128[16] = {
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
+        0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
+    };
+    static const BYTE k192[24] = {
+        0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52,
+        0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90, 0x79, 0xe5,
+        0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b
+    };
+    static const BYTE k256[32] = {
+        0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
+        0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+        0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
+        0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4
+    };
+    static const BYTE iv[16] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f
+    };
+    static const BYTE zero_iv[16] = { 0 };
+    static const BYTE pt[16] = {
+        0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
+        0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a
+    };
+    static const BYTE ct128cbc[16] = {
+        0x76, 0x49, 0xab, 0xac, 0x81, 0x19, 0xb2, 0x46,
+        0xce, 0xe9, 0x8e, 0x9b, 0x12, 0xe9, 0x19, 0x7d
+    };
+    static const BYTE ct128ecb[16] = {
+        0x3a, 0xd7, 0x7b, 0xb4, 0x0d, 0x7a, 0x36, 0x60,
+        0xa8, 0x9e, 0xca, 0xf3, 0x24, 0x66, 0xef, 0x97
+    };
+    static const BYTE ct192cbc[16] = {
+        0x4f, 0x02, 0x1d, 0xb2, 0x43, 0xbc, 0x63, 0x3d,
+        0x71, 0x78, 0x18, 0x3a, 0x9f, 0xa0, 0x71, 0xe8
+    };
+    static const BYTE ct256cbc[16] = {
+        0xf5, 0x8c, 0x4c, 0x04, 0xd6, 0xe5, 0xf1, 0xba,
+        0x77, 0x9e, 0xab, 0xfb, 0x5f, 0x7b, 0xfb, 0xd6
+    };
+    static const BYTE sha256_abc[32] = {
+        0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea,
+        0x41, 0x41, 0x40, 0xde, 0x5d, 0xae, 0x22, 0x23,
+        0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
+        0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad
+    };
+    HCRYPTKEY key = 0;
+    HCRYPTKEY key2 = 0;
+    HCRYPTKEY dup = 0;
+    HCRYPTKEY key192 = 0;
+    HCRYPTKEY key256 = 0;
+    HCRYPTKEY gen = 0;
+    HCRYPTKEY derived = 0;
+    HCRYPTKEY noexp = 0;
+    HCRYPTHASH hash = 0;
+    BYTE buf[64];
+    BYTE plain[64];
+    BYTE blob1[64];
+    BYTE blob2[64];
+    BYTE iv_out[16];
+    BLOBHEADER header;
+    DWORD len = 0;
+    DWORD len1 = 0;
+    DWORD len2 = 0;
+    DWORD value = 0;
+    DWORD vlen;
+
+    check(import_plain(prov, CALG_AES_128, k128, 16, CRYPT_EXPORTABLE, &key),
+          "AES-128 plaintext-key import");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, key, KP_ALGID, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == CALG_AES_128, "KP_ALGID");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, key, KP_KEYLEN, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == 128u, "KP_KEYLEN");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, key, KP_BLOCKLEN, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == 128u, "KP_BLOCKLEN");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, key, KP_MODE, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == CRYPT_MODE_CBC, "KP_MODE defaults to CBC");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, key, KP_PADDING, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == PKCS5_PADDING, "KP_PADDING defaults to PKCS5");
+    vlen = sizeof iv_out;
+    check(pGetKeyParam(prov, key, KP_IV, iv_out, &vlen, 0) == TRUE
+          && vlen == sizeof iv_out && memcmp(iv_out, zero_iv, 16) == 0,
+          "KP_IV defaults to zero");
+
+    check(set_param_u32(prov, key, KP_MODE, CRYPT_MODE_CBC), "set CBC mode");
+    check(set_iv(prov, key, iv), "set IV");
+    check(set_param_u32(prov, key, KP_PADDING, ZERO_PADDING), "set zero padding");
+    check(encrypt_block(prov, key, pt, 16, buf, &len, sizeof buf)
+          && len == 16u && memcmp(buf, ct128cbc, 16) == 0,
+          "AES-128-CBC vector (SP 800-38A F.2.1)");
+    check(decrypt_block(prov, key, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0,
+          "AES-128-CBC decrypt");
+
+    check(set_param_u32(prov, key, KP_MODE, CRYPT_MODE_ECB), "set ECB mode");
+    check(encrypt_block(prov, key, pt, 16, buf, &len, sizeof buf)
+          && len == 16u && memcmp(buf, ct128ecb, 16) == 0,
+          "AES-128-ECB vector (SP 800-38A F.2.1)");
+    check(decrypt_block(prov, key, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0,
+          "AES-128-ECB decrypt");
+
+    check(set_param_u32(prov, key, KP_MODE, CRYPT_MODE_CBC)
+          && set_param_u32(prov, key, KP_PADDING, PKCS5_PADDING),
+          "restore CBC + PKCS5");
+    check(encrypt_block(prov, key, pt, 16, buf, &len, sizeof buf)
+          && len == 32u, "PKCS5 adds a padding block");
+    check(decrypt_block(prov, key, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0, "PKCS5 round-trip");
+
+    memcpy(buf, pt, 16);
+    len = 16;
+    check(pEncrypt(prov, key, 0, TRUE, 0, buf, &len, 16) == FALSE
+          && GetLastError() == (DWORD)ERROR_MORE_DATA && len == 32u,
+          "short encrypt buffer reports the required size");
+    len = 16;
+    check(pEncrypt(prov, key, 0, FALSE, 0, buf, &len, sizeof buf) == FALSE
+          && GetLastError() == (DWORD)NTE_NOT_SUPPORTED,
+          "multi-call encryption is explicitly unsupported");
+
+    check(export_plain(prov, key, blob1, &len1), "export PLAINTEXTKEYBLOB");
+    memcpy(&header, blob1, sizeof header);
+    memcpy(&value, blob1 + sizeof header, sizeof value);
+    check(len1 == (DWORD)(sizeof header + sizeof value + 16)
+          && header.bType == PLAINTEXTKEYBLOB
+          && header.bVersion == CUR_BLOB_VERSION
+          && header.aiKeyAlg == CALG_AES_128 && value == 16u,
+          "PLAINTEXTKEYBLOB layout");
+    check(pImportKey(prov, blob1, len1, 0, CRYPT_EXPORTABLE, &key2) == TRUE,
+          "re-import PLAINTEXTKEYBLOB");
+    check(export_plain(prov, key2, blob2, &len2)
+          && len2 == len1 && memcmp(blob1, blob2, len1) == 0,
+          "export/import round-trip");
+
+    check(pDuplicateKey(prov, key2, NULL, 0, &dup) == TRUE, "duplicate key");
+    check(pDestroyKey(prov, key2) == TRUE, "destroy original key");
+    check(export_plain(prov, dup, blob2, &len2)
+          && len2 == len1 && memcmp(blob1, blob2, len1) == 0,
+          "duplicate survives the original");
+    check(pDestroyKey(prov, dup) == TRUE, "destroy duplicate key");
+
+    check(import_plain(prov, CALG_AES_192, k192, 24, CRYPT_EXPORTABLE, &key192),
+          "AES-192 import");
+    check(set_param_u32(prov, key192, KP_MODE, CRYPT_MODE_CBC)
+          && set_iv(prov, key192, iv)
+          && set_param_u32(prov, key192, KP_PADDING, ZERO_PADDING),
+          "AES-192 params");
+    check(encrypt_block(prov, key192, pt, 16, buf, &len, sizeof buf)
+          && len == 16u && memcmp(buf, ct192cbc, 16) == 0,
+          "AES-192-CBC vector (SP 800-38A F.2.3)");
+    check(decrypt_block(prov, key192, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0,
+          "AES-192-CBC decrypt");
+    check(pDestroyKey(prov, key192) == TRUE, "destroy AES-192 key");
+
+    check(import_plain(prov, CALG_AES_256, k256, 32, CRYPT_EXPORTABLE, &key256),
+          "AES-256 import");
+    check(set_param_u32(prov, key256, KP_MODE, CRYPT_MODE_CBC)
+          && set_iv(prov, key256, iv)
+          && set_param_u32(prov, key256, KP_PADDING, ZERO_PADDING),
+          "AES-256 params");
+    check(encrypt_block(prov, key256, pt, 16, buf, &len, sizeof buf)
+          && len == 16u && memcmp(buf, ct256cbc, 16) == 0,
+          "AES-256-CBC vector (SP 800-38A F.2.5)");
+    check(decrypt_block(prov, key256, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0,
+          "AES-256-CBC decrypt");
+    check(pDestroyKey(prov, key256) == TRUE, "destroy AES-256 key");
+
+    check(pGenKey(prov, CALG_AES_256, CRYPT_EXPORTABLE, &gen) == TRUE,
+          "CPGenKey AES-256");
+    check(set_iv(prov, gen, iv)
+          && set_param_u32(prov, gen, KP_PADDING, PKCS5_PADDING),
+          "generated key params");
+    check(encrypt_block(prov, gen, pt, 16, buf, &len, sizeof buf)
+          && len == 32u, "generated key encrypt");
+    check(decrypt_block(prov, gen, buf, len, plain, &len)
+          && len == 16u && memcmp(plain, pt, 16) == 0,
+          "generated key round-trip");
+    check(export_plain(prov, gen, blob1, &len1), "generated key export");
+    check(pDestroyKey(prov, gen) == TRUE, "destroy generated key");
+
+    check(pCreateHash(prov, CALG_SHA_256, 0, 0, &hash) == TRUE
+          && pHashData(prov, hash, (const BYTE *)"abc", 3, 0) == TRUE,
+          "derive: SHA-256 hash");
+    check(pDeriveKey(prov, CALG_AES_256, hash, CRYPT_EXPORTABLE, &derived)
+          == TRUE, "CPDeriveKey AES-256");
+    check(export_plain(prov, derived, blob1, &len1), "derived key export");
+    memcpy(&value, blob1 + sizeof header, sizeof value);
+    check(len1 == (DWORD)(sizeof header + sizeof value + 32)
+          && value == 32u
+          && memcmp(blob1 + sizeof header + sizeof value, sha256_abc, 32) == 0,
+          "derived key is the SHA-256 prefix");
+    check(pDestroyHash(prov, hash) == TRUE, "destroy derive hash");
+    check(pDestroyKey(prov, derived) == TRUE, "destroy derived key");
+
+    check(pGenKey(prov, (ALG_ID)0x1234, 0, &key2) == FALSE
+          && GetLastError() == (DWORD)NTE_BAD_ALGID,
+          "unsupported key algorithm");
+    check(import_plain(prov, CALG_AES_128, k128, 16, 0, &noexp) == TRUE,
+          "non-exportable import");
+    len1 = sizeof blob1;
+    check(pExportKey(prov, noexp, 0, PLAINTEXTKEYBLOB, 0, blob1, &len1) == FALSE
+          && GetLastError() == (DWORD)NTE_PERM,
+          "non-exportable key refuses export");
+    check(set_param_u32(prov, noexp, KP_MODE, 99) == FALSE,
+          "invalid mode is rejected");
+    check(pDestroyKey(prov, noexp) == TRUE, "destroy non-exportable key");
+
+    {
+        BYTE bad[sizeof(BLOBHEADER) + sizeof(DWORD) + 16];
+        DWORD bad_cb = 15;
+
+        memset(&header, 0, sizeof header);
+        header.bType = PLAINTEXTKEYBLOB;
+        header.bVersion = CUR_BLOB_VERSION;
+        header.aiKeyAlg = CALG_AES_128;
+        memcpy(bad, &header, sizeof header);
+        memcpy(bad + sizeof header, &bad_cb, sizeof bad_cb);
+        memcpy(bad + sizeof header + sizeof bad_cb, k128, 15);
+        check(pImportKey(prov, bad, sizeof bad, 0, 0, &key2) == FALSE,
+              "wrong key length is rejected");
+    }
+
+    /* `key` still has CBC + PKCS5 from above. */
+    check(encrypt_block(prov, key, pt, 16, buf, &len, sizeof buf)
+          && len == 32u, "tamper setup");
+    buf[31] ^= 0x01u;
+    len = 32;
+    check(pDecrypt(prov, key, 0, TRUE, 0, buf, &len) == FALSE,
+          "tampered PKCS5 ciphertext is rejected");
+    check(pDestroyKey(prov, key) == TRUE, "destroy AES-128 key");
+}
+
 static void check_stubs(HCRYPTPROV prov, HCRYPTHASH hash)
 {
     HCRYPTKEY key = 0;
@@ -223,8 +555,8 @@ static void check_stubs(HCRYPTPROV prov, HCRYPTHASH hash)
     DWORD sig_len = sizeof sig;
 
     check(pGenKey(prov, CALG_RSA_KEYX, 0, &key) == FALSE
-          && GetLastError() == (DWORD)NTE_NOT_SUPPORTED,
-          "CPGenKey is an explicit stub");
+          && GetLastError() == (DWORD)NTE_BAD_ALGID,
+          "non-symmetric key generation is refused");
     check(pSignHash(prov, hash, AT_SIGNATURE, NULL, 0, sig, &sig_len) == FALSE
           && GetLastError() == (DWORD)NTE_NOT_SUPPORTED,
           "CPSignHash is an explicit stub");
@@ -277,10 +609,25 @@ int main(int argc, char **argv)
                                                           "CPGetProvParam");
     pGenKey = (FnGenKey)(void *)GetProcAddress(dll, "CPGenKey");
     pSignHash = (FnSignHash)(void *)GetProcAddress(dll, "CPSignHash");
+    pDeriveKey = (FnDeriveKey)(void *)GetProcAddress(dll, "CPDeriveKey");
+    pDestroyKey = (FnDestroyKey)(void *)GetProcAddress(dll, "CPDestroyKey");
+    pGetKeyParam = (FnGetKeyParam)(void *)GetProcAddress(dll,
+                                                          "CPGetKeyParam");
+    pSetKeyParam = (FnSetKeyParam)(void *)GetProcAddress(dll,
+                                                          "CPSetKeyParam");
+    pImportKey = (FnImportKey)(void *)GetProcAddress(dll, "CPImportKey");
+    pExportKey = (FnExportKey)(void *)GetProcAddress(dll, "CPExportKey");
+    pEncrypt = (FnEncrypt)(void *)GetProcAddress(dll, "CPEncrypt");
+    pDecrypt = (FnDecrypt)(void *)GetProcAddress(dll, "CPDecrypt");
+    pDuplicateKey = (FnDuplicateKey)(void *)GetProcAddress(dll,
+                                                           "CPDuplicateKey");
     if (pAcquire == NULL || pRelease == NULL || pGenRandom == NULL
         || pCreateHash == NULL || pHashData == NULL || pGetHashParam == NULL
         || pDestroyHash == NULL || pDuplicateHash == NULL
-        || pGetProvParam == NULL || pGenKey == NULL || pSignHash == NULL) {
+        || pGetProvParam == NULL || pGenKey == NULL || pSignHash == NULL
+        || pDeriveKey == NULL || pDestroyKey == NULL || pGetKeyParam == NULL
+        || pSetKeyParam == NULL || pImportKey == NULL || pExportKey == NULL
+        || pEncrypt == NULL || pDecrypt == NULL || pDuplicateKey == NULL) {
         printf("FAIL required function pointers\n");
         return 1;
     }
@@ -318,6 +665,7 @@ int main(int argc, char **argv)
     check_hash(prov, CALG_SHA_256, "SHA-256",
                "ba7816bf8f01cfea414140de5dae2223"
                "b00361a396177a9cb410ff61f20015ad");
+    check_keys(prov);
     check_provider_params(prov);
     check_stubs(prov, 0);
     check(pRelease(prov, 0) == TRUE, "CPReleaseContext final");
