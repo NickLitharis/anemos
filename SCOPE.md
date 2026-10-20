@@ -4,11 +4,18 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 
 ## Licensed under MIT — original work
 
+**Anemos replacements (`anemos/`)**
+- `anemos/md5/`, `sha1/`, `base64/`, `crc32/`, `nls/`, `statusdos/` — P1
+- `anemos/dns/`, `dhcp/` — P2 codecs and clients
+- `anemos/crypto/`, `csp/` — P3 engine proof and CSP SPI skeleton
+- their tests, independent Python reference implementations, corpora and gates
+
 **Build harness and tooling**
 - `harness/razzle.sh`, `harness/razzle-env.cmd`
 - `harness/razzle-amd64.sh`, `harness/razzle-amd64-env.cmd`
-- `harness/xpbuild.py`, `harness/bin/mc.cmd`
-- `tools/build_codemap.py`, `tools/gen_amd64_status_inc.py`, `tools/ntfspatch.py`
+- `harness/xpbuild.py`, `harness/bin/mc.cmd`, `harness/conformance/runner.py`
+- `tools/abi/*`, `tools/build_codemap.py`, `tools/gen_amd64_status_inc.py`,
+  `tools/ntfspatch.py`, `tools/toolchain.lock`
 
 **Kernel experiments (`kernel/`)**
 - `kernel/build.sh`, `kernel/gen_runtable.py`
@@ -30,10 +37,12 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 
 ## NOT licensed by us — third-party material
 
-**`Source/` — 277,866 files**
+**`Source/` — 277,866 files, outside this repository**
 
-This is leaked Microsoft Windows XP source code. It is present in this working copy
-as a **reference and test oracle only**. It is:
+This is leaked Microsoft Windows XP source code. It is **not** part of this
+repository or its history. The `Source/` entry here is a gitignored symlink to
+a local copy (by default `/home/marocos/winxp_source/Source`), kept as a
+**reference and test oracle only**. It is:
 
 - not owned by this project
 - not licensed by this project, under MIT or anything else
@@ -41,7 +50,9 @@ as a **reference and test oracle only**. It is:
 - not a contribution to it
 
 Nothing in `LICENSE` grants any right to it. Reading it, building it, or comparing
-against it confers no license. If you clone or fork this work, **exclude `Source/`.**
+against it confers no license. A clone or fork of this repository contains no
+`Source/` symlink and no XP source; never add the tree to the repository or a
+release.
 
 ## NOT licensed by us — built from Microsoft's source
 

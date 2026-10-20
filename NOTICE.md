@@ -1,24 +1,28 @@
 # NOTICE
 
-## This repository contains two unrelated bodies of material
+## This working environment contains two unrelated bodies of material
 
 **1. Original work, MIT-licensed** — see `LICENSE` and `SCOPE.md`.
-Everything in `harness/`, `tools/`, `kernel/`, `boot/`, `docs/` and the root
-markdown files was written for this project.
+Everything in `anemos/`, `harness/`, `tools/`, `kernel/`, `boot/`, `docs/` and
+the root markdown files was written for this project.
 
-**2. Third-party material this project does not own** — `Source/`.
+**2. Third-party material this project does not own** — the local `Source/`
+tree. It is not tracked by this repository and is not present in its history;
+the `Source/` entry here is a gitignored symlink for local reference.
 
 ## About `Source/`
 
 `Source/` is **leaked proprietary source code belonging to Microsoft Corporation**
-(Windows XP, NT 5.1). It is here as a local reference and test oracle.
+(Windows XP, NT 5.1). It is kept outside this repository as a local reference and
+test oracle only.
 
 The project makes no claim to it:
 
 - It is **not** licensed under MIT or any other license by us.
-- It is **not** distributed by this project.
+- It is **not** distributed by this project, and is not part of its git history.
 - It is **not** a contribution, and contributed code must not be derived from it.
-- Its presence does not make any other file in this repository a derivative work of it.
+- Its presence in the working environment does not make any file in this
+  repository a derivative work of it.
 
 Anyone reproducing this environment should treat `Source/` as an external artifact
 they obtain separately. **Publishing it is copyright infringement.**
