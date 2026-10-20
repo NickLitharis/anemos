@@ -45,6 +45,13 @@ DHCP state machine are written, documented, and proved against independent
 second implementations. P3 has started: the crypto engine is cross-built for the
 destination ABI, and the CryptoSPI surface is exported and exercised.
 
+## Phase tags
+
+Each completed phase is an annotated git tag — `phase-p0`, `phase-p1`,
+`phase-p2`, `phase-p3.0`, `phase-p3.1`, `phase-p3.1-xp` — so a phase can be
+reviewed, diffed or pushed on its own. See `PHASES.md` for the boundaries and
+what belongs to each phase.
+
 ## How correctness is established
 
 Two rules run through the whole project:
@@ -148,6 +155,7 @@ All are documented rather than discovered late:
 ## Read next
 
 - **`PLAN.md`** — the authoritative plan and the measured state behind every ✅
+- `PHASES.md` — phase boundaries, tags, and which code belongs to each phase
 - `SCOPE.md` / `NOTICE.md` / `LICENSE` — what is ours, what is Microsoft's
 - `docs/OS-CODING-RULES.md` — 17 rules, each naming the failure it prevents
 - `docs/SIZE-POLICY.md` — measured size levers and budgets
