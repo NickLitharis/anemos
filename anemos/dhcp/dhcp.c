@@ -323,6 +323,34 @@ AnemDhcpStatus anem_dhcp_build_option(AnemDhcpWriter *w, uint8_t code,
     return ANEM_DHCP_OK;
 }
 
+AnemDhcpStatus anem_dhcp_build_option_u8(AnemDhcpWriter *w, uint8_t code,
+                                         uint8_t value)
+{
+    return anem_dhcp_build_option(w, code, &value, 1);
+}
+
+AnemDhcpStatus anem_dhcp_build_option_u16(AnemDhcpWriter *w, uint8_t code,
+                                          uint16_t value)
+{
+    uint8_t b[2];
+
+    b[0] = (uint8_t)(value >> 8);
+    b[1] = (uint8_t)(value & 0xffu);
+    return anem_dhcp_build_option(w, code, b, (uint8_t)sizeof b);
+}
+
+AnemDhcpStatus anem_dhcp_build_option_u32(AnemDhcpWriter *w, uint8_t code,
+                                          uint32_t value)
+{
+    uint8_t b[4];
+
+    b[0] = (uint8_t)(value >> 24);
+    b[1] = (uint8_t)((value >> 16) & 0xffu);
+    b[2] = (uint8_t)((value >> 8) & 0xffu);
+    b[3] = (uint8_t)(value & 0xffu);
+    return anem_dhcp_build_option(w, code, b, (uint8_t)sizeof b);
+}
+
 AnemDhcpStatus anem_dhcp_build_finish(AnemDhcpWriter *w, size_t *out_len)
 {
     DhcpWriterState s;
