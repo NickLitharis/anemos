@@ -1,8 +1,8 @@
 # P3 crypto: the engine is built, the seam is next
 
 P3 is "an OpenSSL-backed CSP in the empty `rsaenh` slot". This document records
-the groundwork that is done and the two hard facts discovered while doing it —
-one of which changes what "pass XP's self-tests" can mean.
+the groundwork that is done and the hard facts discovered while doing it —
+two of which change what "pass XP's self-tests" can mean.
 
 No Microsoft source is used as implementation. `Source/` was read only to
 establish the provider ABI and the loader's behaviour.
@@ -12,15 +12,16 @@ establish the provider ABI and the loader's behaviour.
 `anemos/crypto/` now has:
 
 - `build-openssl.sh` — a reproducible cross-build of **OpenSSL 3.5.7** for
-  `i686-w64-mingw32` with the pinned clang 23.1.3, static, `no-asm`. Target
+  `i686-w64-mingw32` with the pinned clang 23.1.3, static, `no-asm`,
+  `no-threads no-async no-thread-pool` (see the import section below). Target
   name is `mingw`; OpenSSL 3.x no longer has `mingw32`, and passing it makes
   Configure print the target list and exit 1. Installed at
-  `~/.local/opt/openssl-3.5.7-i686` (outside the repo, like the toolchain).
+  `~/.local/opt/openssl-3.5.7-i686-xp` (outside the repo, like the toolchain).
 - `kat.c` — known-answer tests for the algorithms the CSP must expose, linked
   statically against that library and run as a 32-bit PE under Wine.
-- `run.sh` — 6 checks, all able to fail.
+- `run.sh` — 7 checks, all able to fail.
 
-Evidence (`anemos/crypto/run.sh`, 6/6):
+Evidence (`anemos/crypto/run.sh`, 7/7):
 
 ```
 OpenSSL: OpenSSL 3.5.7 9 Jun 2026
@@ -33,6 +34,8 @@ PASS aes-256-gcm ciphertext
 PASS aes-256-gcm tag
 PASS rsa-1024 sign/verify
 PASS rsa-1024 tampered signature is rejected
+...
+PASS  kat.exe imports only APIs present on XP
 ```
 
 Vectors are FIPS 180 (SHA-1/256/512), RFC 4231 case 1 (HMAC-SHA-256), NIST
@@ -41,8 +44,37 @@ SP 800-38A F.2.1 (AES-128-CBC, padding off) and the GCM all-zero 256-bit key /
 suite with a deliberately wrong SHA-256 expectation and requires it to fail.
 The binary links the library statically — no DLL dependency for the guest.
 
-This proves the engine works **for the destination ABI**, which was the open
-question. It does not prove the CSP around it.
+This proves the engine works, and that its import table is one XP can resolve.
+It does not prove the CSP around it, and it does not replace running it inside
+XP; the static import gate is the cheap half of that check.
+
+## Wine is not XP: the import surface
+
+The first build passed every KAT under Wine and would still have **failed to
+load on XP**. Its import table contained ten KERNEL32 functions that XP SP1
+does not export:
+
+```
+AcquireSRWLockExclusive      AcquireSRWLockShared
+ReleaseSRWLockExclusive      ReleaseSRWLockShared
+InitializeSRWLock            InitializeConditionVariable
+SleepConditionVariableCS     WakeConditionVariable
+WakeAllConditionVariable     ConvertThreadToFiberEx
+```
+
+They come from OpenSSL's Windows threading layer, its thread pool and its
+async layer. Wine implements them; XP does not. This is a general hazard for
+this project: a Wine-based test is necessary but not sufficient.
+
+The fix is `no-threads no-async no-thread-pool`. The library is then
+non-threadsafe, so the CSP serialises every OpenSSL call through its own
+critical section. The KATs still pass and the import table is clean.
+
+The gate uses the real oracle, not the SDK: `anemos/csp/xp_exports/` holds the
+export lists extracted from `xp-pristine.vmdk` with `ntfspatch.py` and
+`llvm-readobj`. `anemos/csp/check_xp_imports.py` compares a PE's imports
+against them; a synthetic `InitializeSRWLock` binary is the negative control.
+Both `crypto/run.sh` and `csp/run.sh` fail if an import is unavailable on XP.
 
 ## The provider surface, measured
 
@@ -123,8 +155,8 @@ rsaenh** and still returns. A host-side KAT cannot catch this recursion.
 
 | Step | Work | Gate |
 |---|---|---|
-| P3.0 | OpenSSL cross-build + KATs | ✅ 6/6, this document |
-| P3.1 | CSP skeleton exporting all 23+2 names; acquire/release; hash objects; `CPGenRandom`; property queries | ✅ 7/7 — `docs/P3-CSP-SPI.md` |
+| P3.0 | OpenSSL cross-build + KATs + XP import gate | ✅ 7/7, this document |
+| P3.1 | CSP skeleton exporting all 23+2 names; acquire/release; hash objects; `CPGenRandom`; property queries | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.2 | Symmetric keys: `CPGenKey`, `CPDeriveKey`, `CPEncrypt/Decrypt`, import/export | known-answer tests through the SPI |
 | P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | sign/verify and negative controls through the SPI |
 | P3.4 | Run the same tests inside XP via `LoadLibrary` | identical results to the host run |
@@ -135,8 +167,8 @@ rsaenh** and still returns. A host-side KAT cannot catch this recursion.
 
 ```sh
 anemos/crypto/build-openssl.sh    # once; builds 3.5.7 for i686 Windows
-anemos/crypto/run.sh              # 6/6, no VM
+anemos/crypto/run.sh              # 7/7, no VM
 ```
 
-The library lives outside the repo at `~/.local/opt/openssl-3.5.7-i686`, like
+The library lives outside the repo at `~/.local/opt/openssl-3.5.7-i686-xp`, like
 the pinned LLVM toolchain. `run.sh` fails with a clear message if it is absent.

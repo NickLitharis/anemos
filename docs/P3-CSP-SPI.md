@@ -30,12 +30,16 @@ is user-mode, and all state is in fixed tables guarded by a
 
 ## Verification
 
-`anemos/csp/run.sh` — 7 checks, all able to fail:
+`anemos/csp/run.sh` — 11 checks, all able to fail:
 
 1. the pinned clang builds `anemosp.dll` against the cross-built OpenSSL;
 2. all 25 SPI names are present and undecorated in the export table;
-3. the harness (a 32-bit PE) `LoadLibrary`s the DLL and passes every check
-   under Wine:
+3. every import in the DLL resolves on XP. The export lists are extracted from
+   `xp-pristine.vmdk`, and a synthetic `InitializeSRWLock` binary must be
+   rejected by the same check. This gate is why the engine is built with
+   `no-threads`; see `docs/P3-CRYPTO.md`;
+4. the harness (a 32-bit PE) `LoadLibrary`s the DLL and passes every check
+   under Wine — and its own imports are checked against XP too:
    - contexts acquire/release, including a second container;
    - `CPGenRandom` returns distinct non-zero buffers;
    - MD5("abc"), SHA-1("abc"), SHA-256("abc") match published answers through
@@ -45,7 +49,7 @@ is user-mode, and all state is in fixed tables guarded by a
      `NTE_NO_MORE_ITEMS`;
    - unsupported key operations fail with `NTE_NOT_SUPPORTED`, unknown
      algorithms with `NTE_BAD_ALGID`, invalid handles with `NTE_BAD_HASH`;
-4. a harness built with a wrong expected SHA-1 digest must fail.
+5. a harness built with a wrong expected SHA-1 digest must fail.
 
 The harness calls the SPI **directly**. It does not use `CryptAcquireContext`,
 because stock XP verifies the provider image signature before calling
@@ -53,8 +57,12 @@ because stock XP verifies the provider image signature before calling
 gate is about the implementation and the ABI, not about Microsoft trusting the
 DLL.
 
-Artifact: `anemosp.dll` is 3.6 MB, almost all statically linked OpenSSL. Size
-work comes after the feature set; the next slices add keys and RSA.
+Artifact: `anemosp.dll` is about 3.6 MB, almost all statically linked OpenSSL.
+Size work comes after the feature set; the next slices add keys and RSA.
+
+Because OpenSSL is built without its own threading, the provider serialises
+every OpenSSL call through one `CRITICAL_SECTION`. That is the price of an
+XP-clean import table, and it is explicit in the code.
 
 ## Limits and next
 
@@ -77,5 +85,5 @@ work comes after the feature set; the next slices add keys and RSA.
 
 ```sh
 anemos/crypto/build-openssl.sh   # once, if the engine is not built
-anemos/csp/run.sh                # 7/7, no VM
+anemos/csp/run.sh                # 11/11, no VM
 ```

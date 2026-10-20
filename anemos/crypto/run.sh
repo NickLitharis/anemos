@@ -5,7 +5,8 @@
 #   1  the pinned clang links kat.c against the i686 OpenSSL static library
 #   2  the resulting PE runs under Wine and every published vector matches
 #   3  the version string is the pinned 3.5.7 build, not some host library
-#   4  a build with a deliberately wrong expected digest FAILS
+#   4  every import exists on XP (Wine is not XP; this is the static check)
+#   5  a build with a deliberately wrong expected digest FAILS
 #
 # usage: anemos/crypto/run.sh
 set -uo pipefail
@@ -13,7 +14,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT="$HERE/out"
 LLVM="$HOME/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin"
-OSSL="$HOME/.local/opt/openssl-3.5.7-i686"
+OSSL="$HOME/.local/opt/openssl-3.5.7-i686-xp"
 
 export PATH="$LLVM:$PATH"
 export WINEDEBUG=-all WINEPREFIX=${WINEPREFIX:-$HOME/.wine-xp}
@@ -56,6 +57,13 @@ if [ -f "$OUT/kat.exe" ]; then
         ok "binary is linked to the pinned OpenSSL 3.5.7"
     else
         bad "binary is linked to the pinned OpenSSL 3.5.7"
+    fi
+    if python3 "$HERE/../csp/check_xp_imports.py" "$OUT/kat.exe" \
+            --objdump "$LLVM/llvm-objdump" >"$OUT/xp_imports.log" 2>&1; then
+        ok "kat.exe imports only APIs present on XP"
+    else
+        bad "kat.exe imports only APIs present on XP"
+        sed 's/^/    /' "$OUT/xp_imports.log"
     fi
 else
     bad "known-answer vectors under Wine (no binary)"
