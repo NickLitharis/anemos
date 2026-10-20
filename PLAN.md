@@ -39,15 +39,16 @@ Not a roadmap — measured state as of today.
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
 | **Anemos code — P1** | ✅ **6/6** | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` — RFC 1321 + FIPS 180-1 + RFC 4648 + zlib + CP1252/RFC 3629 vectors, plus the `STATUS→DOS` map verified against live XP for **all 2^32 statuses** (`docs/P1-STATUSDOS.md`) |
-| **Anemos code — P2 DNS codec** | ✅ | `anemos/dns/` — RFC 1035 parse/serialise, byte-identical canonical round-trip, 1,365-case differential corpus against an independent Python implementation, 12/12 (`docs/P2-DNS.md`) |
+| **Anemos code — P2 DNS codec** | ✅ | `anemos/dns/` — RFC 1035 parse/serialise, byte-identical canonical round-trip, 1,365-case differential corpus against an independent Python implementation (`docs/P2-DNS.md`) |
+| **Anemos code — P2 DNS client** | ✅ | `anemos/dns/dns_client.*` — response correlation, RCODE/TC, case-insensitive matching, bounded CNAME chains; 2,040-case differential corpus, 24/24 with the codec (`docs/P2-DNS-CLIENT.md`) |
 | **Anemos code — P2 DHCP codec** | ✅ | `anemos/dhcp/` — RFC 2131/2132 parse/serialise/builder, exact round-trip for every accepted message, 4,095-case differential corpus (`docs/P2-DHCP.md`) |
 | **Anemos code — P2 DHCP client** | ✅ | `anemos/dhcp/dhcp_client.*` — socket-free state machine, T1/T2/expiry timers, scenario suite + 6-trace/130-operation differential, 24/24 with the codec (`docs/P2-DHCP-CLIENT.md`) |
 
 The method is proven, P1 is written and gated
 (`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
-`anemos/include/`), and P2's DNS codec, DHCP codec and DHCP client are gated
-(`anemos/{dns,dhcp}/`). Everything from here is substitution work behind stable
-interfaces.
+`anemos/include/`), and P2's DNS codec/client, DHCP codec and DHCP client are
+gated (`anemos/{dns,dhcp}/`). Everything from here is substitution work behind
+stable interfaces.
 
 ---
 
@@ -106,7 +107,7 @@ Each phase begins only when the previous gate passes.
 |---|---|---|
 | **P0** | G1, G2 | ABI matches; runner reports identical on the negative control |
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
-| **P2** | Wire formats: DNS codec (**done**), DHCP codec (**done**), DHCP client (**done**), DNS client (next) | identical bytes out, identical error codes on malformed input |
+| **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: an OpenSSL-backed CSP in the empty `rsaenh` slot | XP's own crypto self-tests pass; known-answer tests for every exposed algorithm |
 | **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
@@ -189,9 +190,15 @@ nobody has legally rewritten.
    suite and a six-trace differential against an independent model; 24/24 with
    the codec (`docs/P2-DHCP-CLIENT.md`). Deliberate deviations: no jitter and a
    caller-seeded LCG for xids, both visible and documented.
-7. **P2 wrap-up — the DNS client** (query/response correlation, CNAME
+7. ~~**P2 wrap-up — the DNS client** (query/response correlation, CNAME
    following, error mapping) using `anemos/dns/`, with the same shape: no
-   socket, explicit time, a second implementation as the oracle. Then P3.
+   socket, explicit time, a second implementation as the oracle.~~ **DNS
+   client complete 2026-10-20.** `anemos/dns/dns_client.*` — case-insensitive
+   matching, RCODE/TC mapping, bounded CNAME chains, and 2,040 differential
+   cases; 24/24 with the codec (`docs/P2-DNS-CLIENT.md`).
+   **P2 is complete.** Next: P3 — the OpenSSL-backed CSP in the `rsaenh` slot,
+   or first wiring the client units to XP's socket path in P4 for behavioural
+   evidence.
 
 Nothing else should be started before G1 and G2 pass. Everything after them is
 substitution work behind stable interfaces, which is tractable precisely because the
@@ -212,6 +219,7 @@ interfaces do not move.
 | `docs/KERNEL-BOOTS-XP.md` | The boot result and how to reproduce it |
 | `docs/P1-STATUSDOS.md` | The STATUS→DOS map proved against XP for all 2^32 statuses |
 | `docs/P2-DNS.md` | DNS codec: model, canonical compression, the differential gate, limits |
+| `docs/P2-DNS-CLIENT.md` | DNS client: matching, CNAME chains, status semantics, the corpus gate |
 | `docs/P2-DHCP.md` | DHCP codec: exact round-trip, option model, the differential gate, limits |
 | `docs/P2-DHCP-CLIENT.md` | DHCP client: states, timers, determinism, the trace gate, limits |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
