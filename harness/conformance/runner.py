@@ -561,7 +561,9 @@ def console_dark(bmp: Path) -> bool:
             r, g, b = row[x * 3], row[x * 3 + 1], row[x * 3 + 2]
             if r < 40 and g < 40 and b < 40:
                 dark += 1
-    return dark > 1500
+    # A console is thousands of samples; the XP "Found New Hardware" wizard's
+    # black sidebar is ~2k and produced false positives at the old 1500.
+    return dark > 6000
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -630,10 +632,10 @@ def cmd_extract(args: argparse.Namespace) -> int:
                     time.sleep(20.0)
                     # The XP screensaver (logon.scr: black screen, logo lower
                     # left) is nearly as dark as an unstyled console, so it made
-                    # "console still up" true forever once it kicked in. A Shift
-                    # keypress dismisses it; a console app that never reads stdin
-                    # (the probe) ignores it, and on the desktop it is inert.
-                    send(["key", "shift"])
+                    # "console still up" true forever once it kicked in. Escape
+                    # dismisses it; Shift was used before but five presses
+                    # trigger StickyKeys, whose dialog stole the screen.
+                    send(["key", "esc"])
                     time.sleep(0.5)
                     shot = workdir / "screen-settle.bmp"
                     if capture(shot) and not console_dark(shot):

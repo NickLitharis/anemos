@@ -50,8 +50,10 @@ say() { printf '%s\n' "$*"; }
 # oembios.bin is the last resort: it holds the OEM boot-logo data, so a fake
 # file may disturb the splash (never the running system) if everything else is
 # too small.
+# Every candidate must have a file extension: LoadLibrary appends ".dll" when
+# the final name has none, so a victim like \windows\repair\software can never
+# be loaded by path (the first XP run failed exactly there).
 DLL_CANDIDATES=(
-    '\windows\repair\software'
     '\windows\PCHealth\HelpCtr\Database\HCdata.edb'
     '\windows\srchasst\nls302en.lex'
     '\windows\system32\oembios.bin'
@@ -154,6 +156,12 @@ python3 "$NTFS" "$DISK" get "$EXE_VICTIM" "$EXE_BAK" \
     || die "cannot read $EXE_VICTIM"
 python3 "$NTFS" "$DISK" get "$DLL_VICTIM" "$DLL_BAK" \
     || die "cannot read $DLL_VICTIM"
+# Restore only the prefix we overwrite. A large victim can have VMDK grains
+# that were never allocated (holes read as zeros); writing the whole backup
+# fails on the first hole with "unallocated grain". The put that installed the
+# payload only touched [0, size), so that is exactly what must come back.
+truncate -s "$EXE_SIZE" "$EXE_BAK"
+truncate -s "$DLL_SIZE" "$DLL_BAK"
 
 restore_one() {
     local path=$1 bak=$2
