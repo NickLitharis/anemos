@@ -36,7 +36,7 @@ TDI is the XP-era interface. WSK arrived with Vista and is not the target.
 |---|---|---|
 | K1 | Loadable driver skeleton: `DriverEntry`, device, symbolic link, IOCTL ping, unload | ✅ **passed 2026-10-22**: service starts, `\\.\AnemosNet` opens, the ping IOCTL returns `ANEM`, and the service stops; certificate in `anemos/net/kernel/xp/` |
 | K2 | lwIP in kernel, `NO_SYS`, kernel clock and an internal netif | ✅ **passed 2026-10-22**: the driver loads, a UDP datagram crosses lwIP's loopback netif in kernel context, and the returned FNV-1a checksum equals an independent user-mode implementation (`254371596`). Certificate: `anemos/net/kernel/xp/anemos-k2.txt` |
-| K3 | NDIS protocol driver: bind, receive, send frames | guest can ARP and ping a host |
+| K3 | NDIS protocol driver: bind, receive, send frames | ◐ **in progress 2026-10-22**: the NIC now has XP's own AMD PCnet driver (`netamd2.inf`, installed with `SetupDi`), and our NDIS 5.1 protocol registers. `BindAdapter` is not called, so `NdisOpenAdapter` is not yet reached; see K3 facts. |
 | K4 | TDI surface compatible with `afd.sys` | `ping`, then `telnet`/`ftp`/HTTP through Winsock |
 | K5 | Replace `tcpip.sys` on the test image, run P4's Winsock certificate against the new stack | 47/47 or documented differences; DHCP and DNS work |
 | K6 | Throughput | not worse than XP's stack on the same VM |
@@ -76,6 +76,25 @@ the guest and are now encoded in `anemos/net/kernel/`:
 - The self-test runs entirely in kernel context: `lwip_init`, the built-in
   loopback netif, a UDP PCB, `netif_poll`, and an FNV-1a checksum of the
   received bytes. The user-mode test computes the same checksum independently.
+
+## K3 facts (so far)
+
+- The VM's NIC is now `vlance` (AMD PCnet32). XP's driver cab already had
+  `pcntpci5.sys`, and `Windows\inf\netamd2.inf` matches `PCI\VEN_1022&DEV_2000`.
+  There is no e1000 INF for VMware's 82545, only the 82543 (`DEV_1004`).
+- The guest installed the driver from its own cab and now has adapter
+  `192.168.103.129` with MAC `00:0c:29:e0:23:b7`. tcpip and Winsock use it.
+- Our driver registers an NDIS 5.1 protocol successfully, but NDIS never calls
+  `ProtocolBindAdapter`. Registering after boot does not join the binding
+  engine. NDIS 5 binding is driven by the `Linkage` registry values that an INF
+  normally writes, not by `NdisRegisterProtocol` alone.
+- Opening the adapter directly by `\Device\{NetCfgInstanceId}` returns
+  `0xC0010006` (`NDIS_STATUS_OPEN_FAILED`), so the device name or the missing
+  binding entry is not sufficient.
+
+Next: add the protocol's `Linkage` keys (or install through an INF with
+`AddReg`), or register the protocol at system start before miniports bind.
+The NIC itself is ready, which removes the hardware blocker.
 
 ## Engineering constraints
 

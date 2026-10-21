@@ -46,6 +46,6 @@ PY
 
 export PATH="$LLVM:$PATH"
 i686-w64-mingw32-clang -std=c23 -Oz -Wall -Wextra -Werror \
-    -I "$OUT" -o "$OUT/m1_test.exe" "$HERE/m1_test.c" -ladvapi32 \
+    -I "$OUT" -o "$OUT/m1_test.exe" "$HERE/m1_test.c" -ladvapi32 -lsetupapi \
     -Xlinker /subsystem:console,5.01
 echo "built $OUT/m1_test.exe"

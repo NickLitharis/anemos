@@ -11,6 +11,19 @@ selftest.rc 1
 selftest.value 254371596
 selftest.expected 254371596
 selftest.match 1
+ndis.restart 1
+ndis.guid {FCEC3991-0779-45A9-A731-C7193BB1DB87}
+ndis.slot 1
+ndis.open_rc 1
+ndis.open_status 3221291014
+ndis.rc 1
+ndis.bound 0
+ndis.medium 0
+ndis.error 3221291014
+ndis.attempts 25
+ndis.calls 1
+ndis.open_status 3221291014
+ndis.open_error 0
 service.stop 1
 service.delete 1
 all kernel M1 observations complete
