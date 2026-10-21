@@ -53,6 +53,7 @@ mkdir -p "$OUT" "$HERE/out"
 say "== build =="
 i686-w64-mingw32-clang -std=c23 -Oz -Wall -Wextra -Werror \
     -o "$HERE/out/xp_probe.exe" "$HERE/xp_probe.c" -lws2_32 \
+    -Xlinker /subsystem:console,5.01 \
     || die "probe build failed"
 python3 "$HERE/../csp/check_xp_imports.py" "$HERE/out/xp_probe.exe" \
     --objdump "$LLVM/llvm-objdump" >/dev/null \
@@ -69,6 +70,8 @@ except OSError:
 PY
 
 python3 "$NTFS" "$DISK" get "$VICTIM" "$BACKUP" || die "cannot read $VICTIM"
+# Restore only the overwritten prefix: a large victim may contain VMDK holes.
+truncate -s "$(stat -c%s "$HERE/out/xp_probe.exe")" "$BACKUP"
 trap restore_victim EXIT
 say "victim: $VICTIM"
 python3 "$NTFS" "$DISK" put "$VICTIM" "$HERE/out/xp_probe.exe" \

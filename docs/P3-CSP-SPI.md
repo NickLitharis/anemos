@@ -113,13 +113,20 @@ collection.
 
 - **Two victims**, because `ntfspatch.py` can only overwrite an existing file:
   the harness (~218 KB) over `mspaint.exe`, and the provider (~3.6 MB) over
-  `\windows\repair\software`. Both are backed up before the swap and restored on
-  every exit path. Candidates are filtered by `ntfspatch.py stat` for size and
-  for NTFS compression — a raw write into a compressed file reads back as
-  garbage, so such a file must never be chosen.
+  `\windows\PCHealth\HelpCtr\Database\HCdata.edb`. Both are backed up before
+  the swap and restored on every exit path. Candidates are filtered by
+  `ntfspatch.py stat` for size and for NTFS compression — a raw write into a
+  compressed file reads back as garbage, so such a file must never be chosen.
+  The first choice, `\windows\repair\software`, failed for a different reason:
+  `LoadLibrary` appends `.dll` when the final name has no extension, so the
+  provider could never be found there.
+- **Restore is a prefix, not the whole file.** A large victim can have VMDK
+  grains that were never allocated (holes read as zeros); writing the full
+  backup back fails with `unallocated grain`. The backup is truncated to the
+  payload length, which is exactly the range the install overwrote.
 - **No boot-critical victim.** The provider does not go over `shell32.dll` or
-  `oembios.bin` while a safe 8 MB file exists; the recovery-hive copy in
-  `\windows\repair` is not read during a normal boot.
+  `oembios.bin` while a safe 12 MB file exists; the help-centre database is
+  not read during a normal boot.
 - **The harness writes a result file.** A second argument makes `spi_test`
   mirror every PASS/FAIL line to `\conftest\spi.log`; in guest mode it also
   holds its console for 8 s so the runner's pixel probe can observe the launch
@@ -130,8 +137,13 @@ collection.
   extracts the log. The guest PASS/FAIL lines must be identical to the host
   run's, and the guest must end with `all CSP SPI checks pass`.
 
-Status: the harness is prepared and its host half is green; the guest run is
-recorded only when it actually passes.
+Status: **P3.4 PASSED 2026-10-21.** The guest ran 163 checks, all PASS, and
+the PASS/FAIL lines are identical to the host run (`anemos/csp/xp/spi-guest.log`
+and `spi-host.log`). Getting there required one more XP rule: a PE whose
+subsystem/OS version is 6.0 (the modern mingw default) is rejected with "not a
+valid Win32 application" even though every import resolves. Guest binaries now
+link with `/subsystem:console,5.01`, and both `run.sh` and the probe gates
+assert subsystem/OS version 5.
 
 ## P3.5 — the CryptoAPI path (plumbing)
 

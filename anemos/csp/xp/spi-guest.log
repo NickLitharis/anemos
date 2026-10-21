@@ -1,0 +1,165 @@
+loaded \windows\pchealth\helpctr\database\hcdata.edb
+PASS all 23 required SPI exports resolve
+PASS both optional exports resolve
+PASS CPAcquireContext
+PASS CPAcquireContext container
+PASS CPReleaseContext
+PASS CPGenRandom returns distinct buffers
+PASS CPGenRandom output is not all zero
+PASS MD5 create
+PASS MD5 data
+PASS MD5 hash size query
+PASS MD5 hash size
+PASS MD5 value size query
+PASS MD5 value
+PASS MD5 duplicate
+PASS MD5 duplicate value
+PASS MD5 destroy
+PASS SHA-1 create
+PASS SHA-1 data
+PASS SHA-1 hash size query
+PASS SHA-1 hash size
+PASS SHA-1 value size query
+PASS SHA-1 value
+PASS SHA-1 duplicate
+PASS SHA-1 duplicate value
+PASS SHA-1 destroy
+PASS SHA-256 create
+PASS SHA-256 data
+PASS SHA-256 hash size query
+PASS SHA-256 hash size
+PASS SHA-256 value size query
+PASS SHA-256 value
+PASS SHA-256 duplicate
+PASS SHA-256 duplicate value
+PASS SHA-256 destroy
+PASS AES-128 plaintext-key import
+PASS KP_ALGID
+PASS KP_KEYLEN
+PASS KP_BLOCKLEN
+PASS KP_MODE defaults to CBC
+PASS KP_PADDING defaults to PKCS5
+PASS KP_IV defaults to zero
+PASS set CBC mode
+PASS set IV
+PASS set zero padding
+PASS AES-128-CBC vector (SP 800-38A F.2.1)
+PASS AES-128-CBC decrypt
+PASS set ECB mode
+PASS AES-128-ECB vector (SP 800-38A F.2.1)
+PASS AES-128-ECB decrypt
+PASS restore CBC + PKCS5
+PASS PKCS5 adds a padding block
+PASS PKCS5 round-trip
+PASS short encrypt buffer reports the required size
+PASS export PLAINTEXTKEYBLOB
+PASS PLAINTEXTKEYBLOB layout
+PASS re-import PLAINTEXTKEYBLOB
+PASS export/import round-trip
+PASS duplicate key
+PASS destroy original key
+PASS duplicate survives the original
+PASS destroy duplicate key
+PASS AES-192 import
+PASS AES-192 params
+PASS AES-192-CBC vector (SP 800-38A F.2.3)
+PASS AES-192-CBC decrypt
+PASS destroy AES-192 key
+PASS AES-256 import
+PASS AES-256 params
+PASS AES-256-CBC vector (SP 800-38A F.2.5)
+PASS AES-256-CBC decrypt
+PASS destroy AES-256 key
+PASS CPGenKey AES-256
+PASS generated key params
+PASS generated key encrypt
+PASS generated key round-trip
+PASS generated key export
+PASS destroy generated key
+PASS derive: SHA-256 hash
+PASS CPDeriveKey AES-256
+PASS derived key export
+PASS derived key is the SHA-256 prefix
+PASS destroy derive hash
+PASS destroy derived key
+PASS unsupported key algorithm
+PASS non-exportable import
+PASS non-exportable key refuses export
+PASS invalid mode is rejected
+PASS destroy non-exportable key
+PASS wrong key length is rejected
+PASS tamper setup
+PASS tampered PKCS5 ciphertext is rejected
+PASS destroy AES-128 key
+PASS streaming key import
+PASS streaming params
+PASS stream: 5 bytes buffered, no output
+PASS stream: 11 more emits the first block
+PASS stream: final emits the second block
+PASS streaming ciphertext matches SP 800-38A
+PASS decrypt stream: 7 bytes buffered
+PASS decrypt stream: 16 bytes emits plaintext
+PASS decrypt stream: final block
+PASS streaming decrypt matches SP 800-38A
+PASS PKCS5 stream reset
+PASS PKCS5 stream: 5 bytes buffered
+PASS PKCS5 stream: final pads to two blocks
+PASS PKCS5 decrypt stream: first call buffers
+PASS PKCS5 decrypt stream: final completes
+PASS PKCS5 streaming round-trip
+PASS zero-padding stream reset
+PASS zero padding rejects a partial final block
+PASS one-shot after stream resets
+PASS second one-shot
+PASS each final operation restarts from the configured IV
+PASS destroy streaming key
+PASS CPGetUserKey AT_SIGNATURE
+PASS CPGetUserKey is stable
+PASS invalid key spec rejected
+PASS CPGetUserKey AT_KEYEXCHANGE
+PASS RSA public blob size query
+PASS RSA public blob export
+PASS RSA public blob layout
+PASS RSA public blob import
+PASS RSA KP_KEYLEN
+PASS RSA KP_ALGID
+PASS RSA sign hash
+PASS RSA signature size query
+PASS CPSignHash SHA-256
+PASS CPVerifySignature accepts the signature
+PASS tampered signature is rejected
+PASS verify with the private handle
+PASS RSA wrong-digest hash
+PASS signature does not verify a different digest
+PASS CPGenKey RSA_KEYX
+PASS RSA private blob size query
+PASS RSA private blob export
+PASS RSA private blob layout
+PASS RSA private blob import
+PASS export public from original RSA key
+PASS export public from imported private key
+PASS private import preserves the key
+PASS non-exportable RSA key
+PASS non-exportable private key refuses export
+PASS destroy non-exportable RSA key
+PASS destroy imported RSA key
+PASS destroy generated RSA key
+PASS destroy public RSA key
+PASS destroy user key
+PASS destroy wrong-digest hash
+PASS destroy sign hash
+PASS PP_NAME size query
+PASS PP_NAME
+PASS PP_PROVTYPE
+PASS PP_VERSION
+PASS PP_IMPTYPE
+PASS PP_ENUMALGS lists MD5, SHA1, SHA256
+PASS PP_ENUMALGS ends
+PASS unsupported key algorithm
+PASS invalid signing key spec
+PASS unknown hash algorithm is rejected
+PASS invalid hash handle is rejected
+PASS destroying an invalid hash fails
+PASS NULL random buffer is rejected
+PASS CPReleaseContext final
+all CSP SPI checks pass
