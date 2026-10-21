@@ -13,6 +13,7 @@
  * (P3.4) has no console the host can read, so it passes
  * `\conftest\spi.log` and the conformance runner collects that file.
  */
+#include <io.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -971,12 +972,17 @@ int main(int argc, char **argv)
     printf("all CSP SPI checks pass\n");
     if (record != NULL) {
         fprintf(record, "all CSP SPI checks pass\n");
+        fflush(record);
+        (void)_commit(_fileno(record));
         fclose(record);
         /* Guest mode: stay on screen long enough for the host's pixel probe
          * to see the console. The runner screenshots ~4 s after the Run box
          * and then polls for the console to close; a fast harness would
          * otherwise exit before either observation. */
         Sleep(8000);
+        /* Power the guest off from inside: the Run-box text fallback can be
+         * lost to a focus thief, and a hard cut risks the certificate. */
+        (void)WinExec("shutdown -s -f -t 0", SW_HIDE);
     }
     return 0;
 }

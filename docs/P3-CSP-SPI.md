@@ -101,9 +101,10 @@ XP-clean import table, and it is explicit in the code.
   `CPHashSessionKey` hashes key bytes into an existing hash.
 - **Provider properties are a subset.** `PP_ENUMALGS_EX`, `PP_KEYSET_SEC_DESCR`,
   UI callbacks and container enumeration are not implemented.
-- **No signature.** The DLL cannot be loaded through CryptoAPI on stock XP.
-  Testing that path requires a documented harness change; the SPI is proved
-  directly here.
+- **No signature.** The DLL cannot be loaded through CryptoAPI on stock XP:
+  the P3.5 experiment tried every documented flag route and all returned
+  `NTE_BAD_SIGNATURE` (`docs/P3-CRYPTO.md`, `anemos/csp/xp/csp-sig.txt`).
+  The SPI is proved directly, and CryptoAPI plumbing is proved under Wine.
 
 ## P3.4 — the same checks inside XP
 

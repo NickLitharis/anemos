@@ -136,6 +136,21 @@ This does not make P3 impossible. It changes the claim: we can prove the
 provider's behaviour, and we can prove CryptoAPI plumbing under a declared
 harness change, but we cannot make stock XP trust a third-party signature.
 
+### Experiment result (2026-10-21)
+
+`sig_probe.c` registers the provider with an `Image Path` and tries every
+documented route: `CRYPT_VERIFYCONTEXT`, that plus `CRYPT_SILENT`,
+`CRYPT_NEWKEYSET`, plain acquire and a container. **All five fail with
+`NTE_BAD_SIGNATURE` (`0x80090006`)**; the stock provider in the same process
+still acquires. The provider key has no `Signature` value. No supported flag
+or registry policy bypasses the check on this XP build.
+
+Decision: **do not patch `advapi32`.** The deliverable claims the SPI (proved
+in-guest, P3.4) and CryptoAPI plumbing under Wine (P3.5). The XP CryptoAPI
+path is recorded as an unclaimable limitation. P3.6's guest recursion test is
+blocked by the same condition, because it needs the provider loaded through
+CryptoAPI. Certificate: `anemos/csp/xp/csp-sig.txt`.
+
 ## Second hazard: RAND recursion
 
 OpenSSL's Windows RAND source uses CryptoAPI (`CryptAcquireContext` /
@@ -171,8 +186,8 @@ path. A host-side KAT cannot catch it.
 | P3.2b | Streaming `CPEncrypt`/`CPDecrypt` across multiple calls | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.4 | Run the same tests inside XP via `LoadLibrary` | identical results to the host run |
-| P3.5 | CryptoAPI integration | ◐ plumbing 7/7 under Wine (registration, translation, signature byte order); stock XP still rejects the image signature, so the XP path needs the harness decision below |
-| P3.6 | RAND hardening (RtlGenRandom seed, no-engine, no CryptoAPI imports) | ✅ host: CSP 15/15, crypto 7/7; guest recursion test pending P3.5's route |
+| P3.5 | CryptoAPI integration | ✅ plumbing 7/7 under Wine; ✅ experiment: every flag route is `NTE_BAD_SIGNATURE` on stock XP, so the XP CryptoAPI path is recorded as unclaimable (no advapi32 patch) |
+| P3.6 | RAND hardening (RtlGenRandom seed, no-engine, no CryptoAPI imports) | ✅ host: CSP 15/15, crypto 7/7; guest recursion test blocked by P3.5's signature result |
 
 ## Reproducing
 

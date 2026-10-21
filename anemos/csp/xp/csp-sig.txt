@@ -1,0 +1,21 @@
+dll.path \windows\pchealth\helpctr\database\hcdata.edb
+dll.load 1
+registry.create.ok 1
+registry.create.err 0
+registry.image_path.ok 1
+acquire.verifycontext.rc 0
+acquire.verifycontext.err 2148073478
+acquire.verify_silent.rc 0
+acquire.verify_silent.err 2148073478
+acquire.newkeyset.rc 0
+acquire.newkeyset.err 2148073478
+acquire.plain.rc 0
+acquire.plain.err 2148073478
+acquire.container.rc 0
+acquire.container.err 2148073478
+acquire.default_provider.rc 1
+acquire.default_provider.err 0
+registry.signature.query 0
+registry.signature.size 0
+registry.delete.ok 1
+all signature observations complete

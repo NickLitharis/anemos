@@ -14,6 +14,7 @@
  */
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <io.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -362,10 +363,15 @@ int main(int argc, char **argv)
     WSACleanup();
     if (record != NULL) {
         fprintf(record, "all winsock observations complete\n");
+        fflush(record);
+        (void)_commit(_fileno(record));
         fclose(record);
         /* Guest mode: stay on screen long enough for the runner's pixel probe
          * to see the console before this process exits. */
         Sleep(8000);
+        /* Power the guest off from inside: the Run-box text fallback can be
+         * lost to a focus thief, and a hard cut risks the certificate. */
+        (void)WinExec("shutdown -s -f -t 0", SW_HIDE);
     }
     printf("all winsock observations complete\n");
     return 0;

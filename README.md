@@ -136,7 +136,9 @@ not published here.
   sign/verify are proved. The CryptoAPI path is proved as plumbing under Wine, including the
   little-endian signature convention, and the in-guest SPI run is identical to
   the host. OpenSSL is hardened against CryptoAPI RAND re-entry; stock XP
-  still verifies the provider image signature.
+  still verifies the provider image signature; the flag experiment confirms
+  every route fails with `NTE_BAD_SIGNATURE`, so that path is documented as
+  unclaimable rather than patched.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
   last. Started with the host-testable Winsock address layer (P4.1); the
   stack architecture — lwIP-style rewrite or ReactOS behind TDI/WSK — is the
