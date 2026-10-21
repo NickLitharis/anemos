@@ -189,7 +189,7 @@ TAG="csp-xp-$(date +%Y%m%d-%H%M%S)"
 say "== boot, launch, collect (tag $TAG) =="
 python3 "$RUNNER" extract --disk "$DISK" --tag "$TAG" \
     --exe "$EXE_NAME $DLL_VICTIM $GUEST_LOG" \
-    --collect spi.log --settle "$SETTLE" \
+    --collect spi.log --settle "$SETTLE" --shutdown-grace 300 \
     || die "runner extract failed (tag $TAG)"
 
 GUEST_COPY="$REPO/harness/conformance/out/$TAG/guest-spi.log"

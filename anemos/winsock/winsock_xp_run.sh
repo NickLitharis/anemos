@@ -81,7 +81,7 @@ TAG="ws-xp-$(date +%Y%m%d-%H%M%S)"
 say "== boot, launch, collect (tag $TAG) =="
 python3 "$RUNNER" extract --disk "$DISK" --tag "$TAG" \
     --exe "$VICTIM_NAME $GUEST_CERT" --collect winsock-cert.txt \
-    --settle "$SETTLE" \
+    --settle "$SETTLE" --shutdown-grace 300 \
     || die "runner extract failed (tag $TAG)"
 
 GUEST_COPY="$REPO/harness/conformance/out/$TAG/guest-winsock-cert.txt"
