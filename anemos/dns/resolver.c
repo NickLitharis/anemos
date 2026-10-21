@@ -60,7 +60,8 @@ static AnemResolverStatus open_and_send(AnemResolver *resolver)
         close_socket(resolver);
         return ANEM_RESOLVER_TRANSPORT;
     }
-    if (anem_socket_send(id, (unsigned)resolver->query_len) < 0) {
+    if (anem_socket_send(id, resolver->query,
+                         (unsigned)resolver->query_len) < 0) {
         close_socket(resolver);
         return ANEM_RESOLVER_TRANSPORT;
     }

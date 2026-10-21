@@ -37,6 +37,9 @@ static void print_requests(void)
         case ANEM_REQUEST_REFUSE:
             printf("req refuse %d\n", request.socket);
             break;
+        case ANEM_REQUEST_ACCEPT:
+            printf("req accept %d\n", request.socket);
+            break;
         case ANEM_REQUEST_SEND:
             printf("req send %d %u\n", request.socket, request.value);
             break;
@@ -236,10 +239,11 @@ int main(void)
             anem_socket_event_incoming(parse_id(fields[1]));
             printf("incoming %s\n", fields[1]);
         } else if (strcmp(fields[0], "send") == 0 && count >= 3) {
+            static uint8_t payload[65536];
             unsigned length = 0;
             int rc = -ANEM_WSAEINVAL;
             if (parse_unsigned(fields[2], &length)) {
-                rc = anem_socket_send(parse_id(fields[1]), length);
+                rc = anem_socket_send(parse_id(fields[1]), payload, length);
             }
             printf("send %s %s %d\n", fields[1], fields[2], rc);
         } else if (strcmp(fields[0], "recv") == 0 && count >= 3) {
