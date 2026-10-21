@@ -11,9 +11,10 @@ the repository or rewriting history.
 | `phase-p2` | `f1381fd` | P2 complete: DNS codec/client and DHCP codec/client, each with an independent implementation as the oracle. |
 | `phase-p3.0` | `3a7478e` | P3.0: OpenSSL 3.5.7 cross-built for i686 Windows; SHA/HMAC/AES/RSA KATs. |
 | `phase-p3.1` | `255bd57` | P3.1: CSP SPI skeleton — 23+2 exports, contexts, MD5/SHA-1/SHA-256, `CPGenRandom`, provider params. |
-| `phase-p3.1-xp` | `1f9e1ec` | P3.1 plus the XP hardening: no-threads OpenSSL rebuild and the import-surface gate against `xp-pristine.vmdk`. Current P3 state. |
+| `phase-p3.1-xp` | `1f9e1ec` | P3.1 plus the XP hardening: no-threads OpenSSL rebuild and the import-surface gate against `xp-pristine.vmdk`. |
 | `phase-p3.2a` | `a32df57` | P3.2a: symmetric key objects and one-shot AES — AES-128/192/256, CBC/ECB, PKCS#5/zero padding, `PLAINTEXTKEYBLOB`, derivation, SP 800-38A vectors through the SPI. |
 | `phase-p3.2b` | `61cd384` | P3.2b: streaming `CPEncrypt`/`CPDecrypt` — per-key EVP buffering, multi-call block semantics, PKCS#5/zero padding, reset on final/parameter changes. |
+| `phase-p3.3` | `0adf1af` | P3.3: RSA key pairs — `PUBLICKEYBLOB`/`PRIVATEKEYBLOB` import/export, ephemeral `CPGetUserKey`, PKCS#1 v1.5 `CPSignHash`/`CPVerifySignature`. |
 
 P3 is **in progress**. There is deliberately no `phase-p3` tag yet; it will be
 created when the P3 gate passes (symmetric keys, RSA, the XP run, the CryptoAPI
