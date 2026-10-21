@@ -33,7 +33,8 @@ mkdir -p "$OUT"
 
 step "1: build and XP import surface"
 if i686-w64-mingw32-clang -std=c23 -Oz -Wall -Wextra -Werror \
-        -o "$OUT/xp_probe.exe" "$HERE/xp_probe.c" -lws2_32; then
+        -o "$OUT/xp_probe.exe" "$HERE/xp_probe.c" -lws2_32 \
+        -Xlinker /subsystem:console,5.01; then
     ok "XP probe builds"
 else
     bad "XP probe builds"
@@ -46,6 +47,14 @@ if python3 "$HERE/../csp/check_xp_imports.py" "$OUT/xp_probe.exe" \
 else
     bad "XP probe imports only APIs present on XP"
     tail -5 "$OUT/xp_probe_imports.log" | sed 's/^/    /'
+fi
+
+major=$(llvm-readobj --file-headers "$OUT/xp_probe.exe" \
+    | awk '/MajorSubsystemVersion:/{print $2; exit}')
+if [ "$major" = "5" ]; then
+    ok "XP probe declares an XP-era subsystem version"
+else
+    bad "XP probe declares an XP-era subsystem version ($major)"
 fi
 
 step "2: the observation script runs to completion"

@@ -24,6 +24,12 @@ OSSL="$HOME/.local/opt/openssl-3.5.7-i686-xp"
 export PATH="$LLVM:$PATH"
 export WINEDEBUG=-all WINEPREFIX=${WINEPREFIX:-$HOME/.wine-xp}
 
+# XP's loader rejects a PE whose subsystem/OS version is 6.0 (modern mingw
+# defaults) with "not a valid Win32 application", even when every import is
+# present. Guest artifacts must declare XP-era versions.
+GUEST_LINK=(-Wl,--major-subsystem-version,5 -Wl,--minor-subsystem-version,1
+            -Wl,--major-os-version,5 -Wl,--minor-os-version,1)
+
 pass=0
 fail=0
 ok()  { pass=$((pass + 1)); printf 'PASS  %s\n' "$1"; }
@@ -47,7 +53,7 @@ if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror -shared \
         -I"$OSSL/include" -I"$HERE" \
         -o "$OUT/anemosp.dll" "$HERE/csp.c" \
         -L"$OSSL/lib" -lcrypto -ladvapi32 -lws2_32 -lgdi32 -lcrypt32 \
-        -Wl,--kill-at; then
+        "${GUEST_LINK[@]}" -Wl,--kill-at; then
     ok "clang builds anemosp.dll"
 else
     bad "clang builds anemosp.dll"
@@ -99,6 +105,22 @@ if [ "$imports_ok" -eq 0 ]; then
     sed 's/^/    /' "$imports_log"
 fi
 
+step "3b: XP-era PE version"
+version_ok=1
+for pe in anemosp.dll spi_test.exe; do
+    [ -f "$OUT/$pe" ] || continue
+    major=$(llvm-readobj --file-headers "$OUT/$pe" \
+        | awk '/MajorSubsystemVersion:/{print $2; exit}')
+    osver=$(llvm-readobj --file-headers "$OUT/$pe" \
+        | awk '/MajorOperatingSystemVersion:/{print $2; exit}')
+    if [ "$major" = "5" ] && [ "$osver" = "5" ]; then
+        ok "$pe declares an XP-era subsystem/OS version"
+    else
+        bad "$pe declares an XP-era subsystem/OS version ($major/$osver)"
+        version_ok=0
+    fi
+done
+
 step "4: negative control — a Vista import must be rejected"
 if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror \
         -o "$OUT/bad_vista.exe" "$HERE/bad_vista.c"; then
@@ -115,7 +137,8 @@ fi
 
 step "5: SPI harness under Wine"
 if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror -I"$HERE" \
-        -o "$OUT/spi_test.exe" "$HERE/spi_test.c"; then
+        -o "$OUT/spi_test.exe" "$HERE/spi_test.c" \
+        -Xlinker /subsystem:console,5.01; then
     ok "harness builds"
     if python3 "$HERE/check_xp_imports.py" "$OUT/spi_test.exe" \
             --objdump "$LLVM/llvm-objdump" >"$OUT/harness_imports.log" 2>&1; then
