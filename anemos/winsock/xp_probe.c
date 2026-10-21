@@ -363,6 +363,9 @@ int main(int argc, char **argv)
     if (record != NULL) {
         fprintf(record, "all winsock observations complete\n");
         fclose(record);
+        /* Guest mode: stay on screen long enough for the runner's pixel probe
+         * to see the console before this process exits. */
+        Sleep(8000);
     }
     printf("all winsock observations complete\n");
     return 0;

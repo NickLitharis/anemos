@@ -646,6 +646,16 @@ def cmd_extract(args: argparse.Namespace) -> int:
                     log(f"  settle {args.settle}s expired with the probe still "
                         "running; any dump will be partial")
             capture(workdir / "screen-final.bmp", delay=1.0)
+            if probe_ok:
+                # The probes do not power the guest off themselves; without
+                # this the runner waits the full grace for a self-shutdown
+                # that never comes (XP's ACPI stop was measured not to work),
+                # then cuts power and risks losing flushed files.
+                log("  asking the guest to shut down")
+                for _ in range(3):
+                    if run_dialog("shutdown -s -t 0", pause=1.0):
+                        break
+                    time.sleep(1.0)
         log("shutting down")
         shutdown_vm(grace=args.shutdown_grace)
         collect = args.collect or ["sdos.bin"]
