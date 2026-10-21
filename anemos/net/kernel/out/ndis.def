@@ -1,0 +1,6 @@
+LIBRARY ndis.sys
+EXPORTS
+    NdisRegisterProtocol@16
+    NdisDeregisterProtocol@8
+    NdisOpenAdapter@44
+    NdisCloseAdapter@8

@@ -36,8 +36,21 @@ EXPORTS=(
     done
 } > "$OUT/ntoskrnl.def"
 
+NDIS_EXPORTS=(
+    NdisRegisterProtocol@16 NdisDeregisterProtocol@8
+    NdisOpenAdapter@44 NdisCloseAdapter@8
+)
+{
+    echo "LIBRARY ndis.sys"
+    echo "EXPORTS"
+    for name in "${NDIS_EXPORTS[@]}"; do
+        echo "    $name"
+    done
+} > "$OUT/ndis.def"
+
 export PATH="$LLVM:$PATH"
 llvm-dlltool -m i386 -k -d "$OUT/ntoskrnl.def" -l "$OUT/libntoskrnl.a"
+llvm-dlltool -m i386 -k -d "$OUT/ndis.def" -l "$OUT/libndis.a"
 
 CFLAGS=(-std=c11 -O2 -ffreestanding -fno-stack-protector -fno-builtin
         -fno-asynchronous-unwind-tables -mno-stack-arg-probe
@@ -47,6 +60,8 @@ i686-w64-mingw32-clang "${CFLAGS[@]}" -c "$HERE/anemosnet.c" \
     -o "$OUT/anemosnet.o"
 i686-w64-mingw32-clang "${CFLAGS[@]}" -c "$HERE/kernel_support.c" \
     -o "$OUT/kernel_support.o"
+i686-w64-mingw32-clang "${CFLAGS[@]}" -c "$HERE/ndis_bind.c" \
+    -o "$OUT/ndis_bind.o"
 
 i686-w64-mingw32-clang --target=i686-w64-mingw32 -nostdlib \
     -Xlinker /subsystem:native,5.01 \
@@ -55,7 +70,7 @@ i686-w64-mingw32-clang --target=i686-w64-mingw32 -nostdlib \
     -Wl,--section-alignment,0x1000 \
     -Wl,--file-alignment,0x200 \
     -o "$OUT/anemosnet.sys" \
-    "$OUT/anemosnet.o" "$OUT/kernel_support.o" "$LWIP/lib/liblwip.a" \
-    "$OUT/libntoskrnl.a"
+    "$OUT/anemosnet.o" "$OUT/kernel_support.o" "$OUT/ndis_bind.o" \
+    "$LWIP/lib/liblwip.a" "$OUT/libntoskrnl.a" "$OUT/libndis.a"
 
 echo "built $OUT/anemosnet.sys"

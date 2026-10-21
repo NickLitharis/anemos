@@ -1,0 +1,11 @@
+nic.expand 1
+nic.instance PCI\VEN_1022&DEV_2000&SUBSYS_20001022&REV_10\2&EBB567F&0&88
+nic.hardware_id PCI\VEN_1022&DEV_2000&SUBSYS_20001022&REV_10
+nic.install 0
+nic.install.err 3758096907
+nic.reboot 0
+nic.device_found 1
+adapter.0.ip 192.168.103.129
+adapter.0.mac 00:0c:29:e0:23:b7
+adapter.count 1
+all NIC install observations complete

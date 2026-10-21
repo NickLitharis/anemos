@@ -6,6 +6,8 @@
  * service, then writes a certificate and shuts the guest down.
  */
 #include <windows.h>
+#include <setupapi.h>
+#include <devguid.h>
 #include <stdio.h>
 #include <io.h>
 #include <wchar.h>
@@ -17,6 +19,10 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NET_SELFTEST \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_STATE \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_OPEN \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 static unsigned long fnv1a(const char *text)
 {
@@ -59,6 +65,55 @@ static void report(const char *name, unsigned long value)
     printf("%s %lu\n", name, value);
     if (record != NULL) {
         fprintf(record, "%s %lu\n", name, value);
+    }
+}
+
+static const GUID net_class_guid = {
+    0x4d36e972, 0xe325, 0x11ce,
+    { 0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18 }
+};
+
+static unsigned long restart_nic(void)
+{
+    HDEVINFO devices = SetupDiGetClassDevsA(&net_class_guid, NULL, NULL,
+                                            DIGCF_PRESENT);
+    SP_DEVINFO_DATA data;
+    DWORD index = 0;
+    unsigned long restarted = 0;
+
+    if (devices == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    data.cbSize = sizeof data;
+    if (SetupDiEnumDeviceInfo(devices, 0, &data)) {
+        SP_PROPCHANGE_PARAMS params;
+        memset(&params, 0, sizeof params);
+        params.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+        params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+        params.StateChange = DICS_DISABLE;
+        params.Scope = DICS_FLAG_GLOBAL;
+        if (SetupDiSetClassInstallParamsA(devices, &data,
+                (SP_CLASSINSTALL_HEADER *)&params, sizeof params)) {
+            (void)SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, devices, &data);
+            Sleep(1000);
+            params.StateChange = DICS_ENABLE;
+            if (SetupDiSetClassInstallParamsA(devices, &data,
+                    (SP_CLASSINSTALL_HEADER *)&params, sizeof params)) {
+                restarted = SetupDiCallClassInstaller(DIF_PROPERTYCHANGE,
+                                                      devices, &data) ? 1u : 0u;
+            }
+        }
+    }
+    (void)index;
+    SetupDiDestroyDeviceInfoList(devices);
+    return restarted;
+}
+
+static void report_str(const char *name, const char *value)
+{
+    printf("%s %s\n", name, value == NULL ? "(null)" : value);
+    if (record != NULL) {
+        fprintf(record, "%s %s\n", name, value == NULL ? "(null)" : value);
     }
 }
 
@@ -177,6 +232,58 @@ int main(int argc, char **argv)
             report("selftest.value", (unsigned long)answer);
             report("selftest.expected", expected);
             report("selftest.match", answer == expected ? 1u : 0u);
+        }
+        {
+            unsigned long state[6] = {0, 0, 0, 0, 0, 0};
+            unsigned long attempt;
+            char guid[128] = {0};
+            report("ndis.restart", restart_nic());
+            Sleep(2000);
+            HKEY key = NULL;
+            DWORD size = sizeof guid;
+            for (unsigned long slot = 0; slot < 16 && guid[0] == '\0'; slot++) {
+                char key_path[256];
+                (void)snprintf(key_path, sizeof key_path,
+                    "SYSTEM\\CurrentControlSet\\Control\\Class\\"
+                    "{4D36E972-E325-11CE-BFC1-08002BE10318}\\%04lu", slot);
+                if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, key_path, 0, KEY_READ,
+                                  &key) == ERROR_SUCCESS) {
+                    size = sizeof guid;
+                    if (RegQueryValueExA(key, "NetCfgInstanceId", NULL, NULL,
+                                         (BYTE *)guid, &size) == ERROR_SUCCESS) {
+                        report_str("ndis.guid", guid);
+                        report("ndis.slot", slot);
+                    }
+                    RegCloseKey(key);
+                }
+            }
+            if (guid[0] != '\0') {
+                char path[160];
+                unsigned long opened = 0;
+                (void)snprintf(path, sizeof path, "\\Device\\{%s}", guid);
+                ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_OPEN,
+                                     path, (DWORD)(strlen(path) + 1) * 2,
+                                     &opened, sizeof opened, &returned, NULL);
+                report("ndis.open_rc", ok ? 1u : 0u);
+                report("ndis.open_status", opened);
+            }
+
+            for (attempt = 0; attempt < 25; attempt++) {
+                ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_STATE, NULL, 0,
+                                     state, sizeof state, &returned, NULL);
+                if (ok && state[0] != 0) {
+                    break;
+                }
+                Sleep(200);
+            }
+            report("ndis.rc", ok ? 1u : 0u);
+            report("ndis.bound", state[0]);
+            report("ndis.medium", state[1]);
+            report("ndis.error", state[2]);
+            report("ndis.attempts", attempt);
+            report("ndis.calls", state[3]);
+            report("ndis.open_status", state[4]);
+            report("ndis.open_error", state[5]);
         }
         CloseHandle(device);
     }

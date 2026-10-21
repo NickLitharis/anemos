@@ -30,6 +30,20 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NET_SELFTEST \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_STATE \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_OPEN \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+NTSTATUS anem_ndis_start(void);
+VOID anem_ndis_stop(void);
+ULONG anem_ndis_is_bound(void);
+ULONG anem_ndis_medium(void);
+ULONG anem_ndis_error(void);
+ULONG anem_ndis_bind_calls(void);
+ULONG anem_ndis_open_status(void);
+ULONG anem_ndis_open_error(void);
+ULONG anem_ndis_open(const WCHAR *path, ULONG length);
 
 /* lwIP has no OS clock under NO_SYS. KeQueryInterruptTime counts 100 ns
  * units; shift and divide in 32 bits so no libgcc helper is needed. */
@@ -176,7 +190,34 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
     ULONG_PTR information = 0;
 
     (void)device;
-    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_PING
+    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_OPEN) {
+        ULONG length = stack->Parameters.DeviceIoControl.InputBufferLength;
+        if (length < sizeof(WCHAR) || length > 512) {
+            status = STATUS_INVALID_PARAMETER;
+        } else {
+            ULONG answer = anem_ndis_open(
+                (const WCHAR *)irp->AssociatedIrp.SystemBuffer, length);
+            if (stack->Parameters.DeviceIoControl.OutputBufferLength >= sizeof(ULONG)) {
+                *(ULONG *)irp->AssociatedIrp.SystemBuffer = answer;
+                information = sizeof(ULONG);
+            }
+            status = STATUS_SUCCESS;
+        }
+    } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_STATE) {
+        if (stack->Parameters.DeviceIoControl.OutputBufferLength < 6 * sizeof(ULONG)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+        } else {
+            ULONG *out = irp->AssociatedIrp.SystemBuffer;
+            out[0] = anem_ndis_is_bound();
+            out[1] = anem_ndis_medium();
+            out[2] = anem_ndis_error();
+            out[3] = anem_ndis_bind_calls();
+            out[4] = anem_ndis_open_status();
+            out[5] = anem_ndis_open_error();
+            information = 6 * sizeof(ULONG);
+            status = STATUS_SUCCESS;
+        }
+    } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_PING
         || stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NET_SELFTEST) {
         if (stack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(ULONG)) {
             status = STATUS_BUFFER_TOO_SMALL;
@@ -197,6 +238,7 @@ static VOID NTAPI driver_unload(PDRIVER_OBJECT driver)
     UNICODE_STRING link;
 
     RtlInitUnicodeString(&link, ANEM_DOS_NAME);
+    anem_ndis_stop();
     IoDeleteSymbolicLink(&link);
     IoDeleteDevice(driver->DeviceObject);
 }
@@ -228,5 +270,6 @@ NTSTATUS NTAPI DriverEntry(PDRIVER_OBJECT driver, PUNICODE_STRING registry_path)
     driver->MajorFunction[IRP_MJ_DEVICE_CONTROL] = dispatch_control;
     driver->DriverUnload = driver_unload;
     device->Flags |= DO_BUFFERED_IO;
+    (void)anem_ndis_start();
     return STATUS_SUCCESS;
 }
