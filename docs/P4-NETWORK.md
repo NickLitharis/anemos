@@ -31,7 +31,7 @@ the bottom layer.
 | Slice | Work | Gate |
 |---|---|---|
 | P4.1 | Address layer: byte order, IPv4 text parse/format, `sockaddr_in`, `inet_*` names | differential corpus against an independent implementation; XP probe later |
-| P4.2 | Socket core: `socket`/`bind`/`connect`/`listen`/`accept`/`shutdown`/`close` state machine over an injectable transport | differential against an independent model, no sockets in the tests |
+| P4.2 | Socket core: `socket`/`bind`/`connect`/`listen`/`accept`/`shutdown`/`close` state machine over an injectable transport — **done** | differential against an independent model, no sockets in the tests |
 | P4.3 | Readiness: `select`/`poll`, timeouts, non-blocking semantics, cancellation | deterministic scenario suite |
 | P4.4 | The XP socket path for the DNS resolver, closing P2's deferred gap | resolver differential over the socket core |
 | P4.5 | Transport provider: TDI/WSK or the adopted stack, decided by measurement | throughput not worse than XP |
@@ -55,8 +55,49 @@ legacy `inet_addr` accepts forms the strict parser rejects, and that difference
 is exactly what the P4.6 in-guest probe must record. Until then the module does
 not claim XP compatibility for those inputs.
 
+## P4.2 — the socket core (done)
+
+`anemos/winsock/socket_core.*` is the connection lifecycle with no socket
+under it. It keeps 64 slots, enforces state transitions, and emits requests
+(`open`, `bind`, `listen`, `connect`, `shutdown`, `close`, `refuse`) that a
+transport drains; completed-transport events (`connected`, `refused`,
+`incoming`) are injected back in. Everything is a deterministic function of
+the operation trace, so the gate compares full traces rather than sampling a
+live machine.
+
+Rules worth stating because they are choices, not accidents:
+
+- `connect` on an unbound socket binds implicitly (emits `bind`); a stream
+  socket becomes `connecting`, a datagram socket is `connected` at once
+  because there is no handshake.
+- A refused connect returns the socket to `bound`; it can be retried.
+- `listen` accepts a bound stream socket and a repeated `listen` updates the
+  backlog, as on Windows; a zero backlog becomes one.
+- `accept` returns `WSAEWOULDBLOCK` on an empty queue, and a full backlog
+  emits `refuse` to the transport instead of silently dropping.
+- `bind` to the broadcast address fails with `WSAEADDRNOTAVAIL`. Port
+  conflicts are checked by port (not address); an ephemeral port is taken
+  from 49152 upward and skips ports already in use.
+- `shutdown` uses Winsock's `SD_RECEIVE`/`SD_SEND`/`SD_BOTH` values and keeps
+  the socket connected.
+- A full request queue sets an overflow flag instead of silently losing an
+  operation; the trace harness reports it.
+
+The gate (`anemos/winsock/socket_run.sh`, 5 checks) runs 31 traces — eleven
+hand-written scenarios and 20 seeded random walks — through the C core and an
+independent Python model and requires byte-identical output, including the
+drained request queue. A build with a broken accept queue is rejected by the
+same corpus, and a 30,000-operation fuzz run stayed identical.
+`socket_core.c` is 1410 bytes of `.text`.
+
+**Limit:** this slice covers lifecycle only. No data path, no readiness, no
+timing; those are P4.3. It also does not claim XP behaviour — Winsock's own
+edge cases (for example `listen` on a datagram socket) still need the P4.6
+probe.
+
 ## Reproducing
 
 ```sh
-anemos/winsock/run.sh    # 6/6, Wine, no VM
+anemos/winsock/run.sh          # P4.1 address layer: 6/6
+anemos/winsock/socket_run.sh   # P4.2 socket core: 5/5
 ```
