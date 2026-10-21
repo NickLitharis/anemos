@@ -31,7 +31,9 @@ write_note() {
     cat > "$PREFIX/BUILD.txt" <<EOF
 OpenSSL $VERSION, i686-w64-mingw32, static, built $(date -u +%Y-%m-%dT%H:%M:%SZ)
 CC=clang (llvm-mingw 20261006, clang 23.1.3)
-Configure: mingw --cross-compile-prefix=i686-w64-mingw32- --prefix=$PREFIX no-shared no-tests no-asm no-threads no-async no-thread-pool
+Configure: mingw --cross-compile-prefix=i686-w64-mingw32- --prefix=$PREFIX no-shared no-tests no-asm no-threads no-async no-thread-pool no-engine
+RAND: rand_win.c patched to seed from SystemFunction036 (RtlGenRandom), not CryptoAPI.
+Engines: none, so the CryptoAPI engine (e_capi) cannot re-enter the provider.
 Import surface: checked against anemos/csp/xp_exports/ (from xp-pristine.vmdk)
 EOF
 }
@@ -53,11 +55,54 @@ rm -rf "openssl-$VERSION"
 tar xzf "$TARBALL"
 cd "openssl-$VERSION"
 
+# OpenSSL's Windows seed source calls CryptoAPI (CryptAcquireContext /
+# CryptGenRandom). When this DLL sits in the rsaenh slot, that call re-enters
+# the provider. Replace the entropy source with RtlGenRandom, which is
+# independent of CryptoAPI. Pinned to 3.5.7; the build fails if the block no
+# longer matches.
+python3 - <<'PY'
+from pathlib import Path
+
+path = Path("providers/implementations/rands/seeding/rand_win.c")
+text = path.read_text()
+decl = "#ifndef USE_BCRYPTGENRANDOM\n    HCRYPTPROV hProvider;\n#endif\n"
+if decl not in text:
+    raise SystemExit("rand_win.c: provider declaration changed")
+text = text.replace(decl, "")
+
+start = text.index("#else\n    bytes_needed = ossl_rand_pool_bytes_needed")
+end = text.index("#endif\n\n    return ossl_rand_pool_entropy_available(pool);")
+replacement = '''#else
+    bytes_needed = ossl_rand_pool_bytes_needed(pool, 1 /*entropy_factor*/);
+    buffer = ossl_rand_pool_add_begin(pool, bytes_needed);
+    if (buffer != NULL) {
+        size_t bytes = 0;
+
+        /* RtlGenRandom is independent of CryptoAPI: an OpenSSL RAND call can
+         * never re-enter a provider installed as rsaenh.dll. */
+        if (SystemFunction036(buffer, (ULONG)bytes_needed))
+            bytes = bytes_needed;
+        ossl_rand_pool_add_end(pool, bytes, 8 * bytes);
+        entropy_available = ossl_rand_pool_entropy_available(pool);
+    }
+    if (entropy_available > 0)
+        return entropy_available;
+'''
+text = text[:start] + replacement + text[end:]
+text = text.replace(
+    "#include <windows.h>",
+    "#include <windows.h>\n\n"
+    "BOOLEAN WINAPI SystemFunction036(PVOID pbBuffer, ULONG cbBuffer);",
+    1)
+path.write_text(text)
+print("rand_win.c patched to RtlGenRandom")
+PY
+
 export PATH="$LLVM:$PATH"
 CC=clang ./Configure mingw \
     --cross-compile-prefix=i686-w64-mingw32- \
     --prefix="$PREFIX" \
-    no-shared no-tests no-asm no-threads no-async no-thread-pool
+    no-shared no-tests no-asm no-threads no-async no-thread-pool no-engine
 
 make -j"$(nproc)"
 make install_sw

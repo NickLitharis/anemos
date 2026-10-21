@@ -14,7 +14,7 @@ API specification, and the platform types come from the SDK headers.
 | Area | Entry points | Behaviour |
 |---|---|---|
 | Context | `CPAcquireContext`, `CPAcquireContextW`, `CPReleaseContext` | 32 slots, container name recorded, `CRYPT_DELETEKEYSET` refused, release destroys the context's hashes and keys |
-| Randomness | `CPGenRandom` | `SystemFunction036` (`RtlGenRandom`), **not** OpenSSL's CryptoAPI RAND — that would re-enter the provider when installed as `rsaenh.dll` |
+| Randomness | `CPGenRandom` | `SystemFunction036` (`RtlGenRandom`), **not** OpenSSL's CryptoAPI RAND — that would re-enter the provider when installed as `rsaenh.dll`. OpenSSL itself is built with `no-engine` and a patched `rand_win.c` that also seeds from `SystemFunction036`; the gate asserts the DLL imports no `Crypt*` entry point |
 | Hashing | `CPCreateHash`, `CPHashData`, `CPGetHashParam`, `CPDestroyHash`, `CPDuplicateHash` | MD5, SHA-1, SHA-256 via OpenSSL EVP; `HP_HASHVAL` finalises a copy, so repeated reads work; `HP_HASHSIZE`; two-call size queries return `ERROR_MORE_DATA` |
 | Provider | `CPGetProvParam`, `CPSetProvParam` | `PP_NAME`, `PP_VERSION` (2.0), `PP_PROVTYPE` (`PROV_RSA_FULL`), `PP_IMPTYPE` (`CRYPT_IMPL_SOFTWARE`), `PP_ENUMALGS` (MD5, SHA1, SHA256) |
 | Keys | `CPGenKey`, `CPDeriveKey`, `CPImportKey`, `CPExportKey`, `CPDestroyKey`, `CPDuplicateKey`, `CPGetKeyParam`, `CPSetKeyParam` | AES-128/192/256; `PLAINTEXTKEYBLOB`; CBC/ECB; PKCS#5 or zero padding; `KP_ALGID`, `KP_KEYLEN`, `KP_BLOCKLEN`, `KP_MODE`, `KP_PADDING`, `KP_IV`; export only when `CRYPT_EXPORTABLE` |

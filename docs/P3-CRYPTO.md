@@ -143,13 +143,23 @@ OpenSSL's Windows RAND source uses CryptoAPI (`CryptAcquireContext` /
 calls CryptoAPI, the call re-enters the provider: unbounded recursion, likely
 at the first key generation or signature.
 
-Mitigation to implement with the CSP:
-- build/configure OpenSSL's seed source explicitly, and seed the DRBG from
-  `SystemFunction036` (`RtlGenRandom`), which is independent of the CSP; or
-- build with `--with-rand-seed=none` and seed explicitly at provider load.
+Mitigation, implemented (P3.6 hardening):
+- `build-openssl.sh` patches `rand_win.c` to seed from `SystemFunction036`
+  (`RtlGenRandom`) instead of CryptoAPI, and builds with `no-engine` so the
+  CryptoAPI engine cannot be pulled in either;
+- the CSP also seeds OpenSSL's DRBG once at first context acquisition from
+  `SystemFunction036`, so the library is never unseeded;
+- `anemos/csp/run.sh` now asserts the import surface: `SystemFunction036` is
+  present and **no** `Crypt*` entry point is.
 
-This must be a test: a KAT that generates an RSA key **with the CSP loaded as
-rsaenh** and still returns. A host-side KAT cannot catch this recursion.
+`--with-rand-seed=none` alone is not usable here: OpenSSL's `rand_win.c` then
+fails with `"Unsupported seeding method configured; must be os"`, which is why
+the source patch is the supported route.
+
+The guest recursion test (RSA key generation with the CSP in the `rsaenh`
+slot) still has to run, and it depends on the P3.5 signature route: without a
+way to load the provider through CryptoAPI, no test can exercise the re-entry
+path. A host-side KAT cannot catch it.
 
 ## Staged plan
 
@@ -162,7 +172,7 @@ rsaenh** and still returns. A host-side KAT cannot catch this recursion.
 | P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.4 | Run the same tests inside XP via `LoadLibrary` | identical results to the host run |
 | P3.5 | CryptoAPI integration | ◐ plumbing 7/7 under Wine (registration, translation, signature byte order); stock XP still rejects the image signature, so the XP path needs the harness decision below |
-| P3.6 | RAND recursion test with the DLL in the `rsaenh` slot | key generation succeeds and does not recurse |
+| P3.6 | RAND hardening (RtlGenRandom seed, no-engine, no CryptoAPI imports) | ✅ host: CSP 15/15, crypto 7/7; guest recursion test pending P3.5's route |
 
 ## Reproducing
 

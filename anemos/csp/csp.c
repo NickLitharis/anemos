@@ -17,6 +17,7 @@
 #include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <openssl/param_build.h>
+#include <openssl/rand.h>
 #include <openssl/rsa.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -672,6 +673,27 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
     return TRUE;
 }
 
+/* OpenSSL is built with --with-rand-seed=none, so its DRBG has no seed source
+ * at all: the Windows source would call CryptoAPI and re-enter this provider
+ * when it sits in the rsaenh slot. Seed it once from SystemFunction036, which
+ * is independent of the CSP. */
+static BOOL ensure_rand_seeded(void)
+{
+    static bool seeded;
+    unsigned char seed[32];
+
+    if (seeded) {
+        return TRUE;
+    }
+    if (!SystemFunction036(seed, (ULONG)sizeof seed)) {
+        return fail(NTE_FAIL);
+    }
+    RAND_seed(seed, (int)sizeof seed);
+    secure_zero(seed, sizeof seed);
+    seeded = true;
+    return TRUE;
+}
+
 static BOOL acquire(HCRYPTPROV *phProv, LPCSTR container, DWORD dwFlags)
 {
     AnemCspContext *slot = NULL;
@@ -684,6 +706,10 @@ static BOOL acquire(HCRYPTPROV *phProv, LPCSTR container, DWORD dwFlags)
         return fail(NTE_BAD_FLAGS);
     }
     EnterCriticalSection(&g_lock);
+    if (!ensure_rand_seeded()) {
+        LeaveCriticalSection(&g_lock);
+        return FALSE;
+    }
     for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
         if (!g_ctx[i].used) {
             slot = &g_ctx[i];
