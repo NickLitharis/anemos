@@ -110,7 +110,7 @@ static void print_result(void)
                       | ((uint32_t)result->addr[2] << 8)
                       | (uint32_t)result->addr[3];
 
-        printf("result ok 4 %s %lu\n", anem_inet_ntoa(addr),
+        printf("result ok 4 %s %lu\n", anem_inet_ntoa(anem_htonl(addr)),
                (unsigned long)result->ttl);
     } else {
         printf("result ok 6 ");
