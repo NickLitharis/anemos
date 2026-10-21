@@ -43,6 +43,7 @@ class Slot:
         self.writable = False
         self.eof = False
         self.reset = False
+        self.error = 0
         self.shut_read = False
         self.shut_write = False
 
@@ -69,22 +70,22 @@ class Core:
                 return index
         return None
 
-    def ephemeral(self):
+    def ephemeral(self, kind):
         for _ in range(16384):
             port = self.next_ephemeral
             self.next_ephemeral = (49152 if self.next_ephemeral >= 65535
                                    else self.next_ephemeral + 1)
-            if not self.port_in_use(port):
+            if not self.port_in_use(port, kind):
                 return port
         return None
 
-    def port_in_use(self, port):
+    def port_in_use(self, port, kind):
         if port == 0:
             return False
         for slot in self.slots:
             if slot is None or slot.state == CREATED:
                 continue
-            if slot.port == port:
+            if slot.port == port and slot.type == kind:
                 return True
         return False
 
@@ -109,10 +110,10 @@ class Core:
         if addr == "255.255.255.255":
             return -WSAEADDRNOTAVAIL
         if port == 0:
-            port = self.ephemeral()
+            port = self.ephemeral(slot.type)
             if port is None:
                 return -WSAEADDRNOTAVAIL
-        elif self.port_in_use(port):
+        elif self.port_in_use(port, slot.type):
             return -WSAEADDRINUSE
         slot.addr = addr
         slot.port = port
@@ -143,8 +144,9 @@ class Core:
             return -WSAEISCONN
         if slot.state == LISTENING:
             return -WSAEINVAL
+        slot.error = 0
         if slot.state == CREATED:
-            local = self.ephemeral()
+            local = self.ephemeral(slot.type)
             if local is None:
                 return -WSAEADDRNOTAVAIL
             slot.addr = "0.0.0.0"
@@ -185,6 +187,9 @@ class Core:
             return -WSAENOTCONN
         if how not in (SD_RECEIVE, SD_SEND, SD_BOTH):
             return -WSAEINVAL
+        if ((how in (SD_RECEIVE, SD_BOTH) and slot.shut_read)
+                or (how in (SD_SEND, SD_BOTH) and slot.shut_write)):
+            return -WSAENOTCONN
         if how in (SD_RECEIVE, SD_BOTH):
             slot.shut_read = True
             slot.rx_available = 0
@@ -207,11 +212,14 @@ class Core:
         if slot is not None and slot.state == CONNECTING:
             slot.state = CONNECTED
             slot.writable = True
+            slot.error = 0
 
     def event_refused(self, ident):
         slot = self.slot(ident)
         if slot is not None and slot.state == CONNECTING:
             slot.state = BOUND
+            slot.error = WSAECONNREFUSED
+            slot.writable = True
 
     def op_send(self, ident, length):
         slot = self.slot(ident)
@@ -251,6 +259,10 @@ class Core:
             return 0, 0
         return -WSAEWOULDBLOCK, 0
 
+    def op_error(self, ident):
+        slot = self.slot(ident)
+        return -WSAENOTSOCK if slot is None else slot.error
+
     def op_select(self, read_ids, write_ids):
         for ident in read_ids + write_ids:
             if self.slot(ident) is None:
@@ -260,19 +272,22 @@ class Core:
         ready = 0
         for ident in read_ids:
             slot = self.slot(ident)
-            is_ready = slot.rx_available > 0 or slot.eof or slot.reset
+            is_ready = ((slot.state == LISTENING and slot.pending > 0)
+                        or slot.rx_available > 0 or slot.eof or slot.reset
+                        or slot.shut_read)
             read_ready.append(is_ready)
             ready += is_ready
         for ident in write_ids:
             slot = self.slot(ident)
-            is_ready = slot.writable or slot.reset
+            is_ready = (slot.writable or slot.reset or slot.error
+                        or slot.shut_write)
             write_ready.append(is_ready)
             ready += is_ready
         return ready, read_ready, write_ready
 
     def event_readable(self, ident, count):
         slot = self.slot(ident)
-        if slot is None or slot.state != CONNECTED or slot.reset:
+        if slot is None or slot.state != CONNECTED or slot.reset or slot.eof:
             return
         if not slot.shut_read:
             slot.rx_available = min(slot.rx_available + count, 0xFFFFFFFF)
@@ -290,8 +305,15 @@ class Core:
 
     def event_reset(self, ident):
         slot = self.slot(ident)
-        if slot is not None and slot.state == CONNECTED:
+        if slot is None:
+            return
+        if slot.state == CONNECTED:
             slot.reset = True
+            slot.rx_available = 0
+        elif slot.state == CONNECTING:
+            slot.state = BOUND
+            slot.error = WSAECONNRESET
+            slot.writable = True
 
     def event_incoming(self, ident):
         slot = self.slot(ident)
@@ -318,10 +340,11 @@ def parse_uint(text, limit=65535):
 
 
 def parse_id(text):
-    try:
-        return int(text)
-    except ValueError:
+    body = text[1:] if text.startswith("-") else text
+    if body == "" or not body.isdigit():
         return -1
+    value = int(text)
+    return value if abs(value) <= 1000000 else -1
 
 
 def parse_id_list(text):
@@ -329,9 +352,12 @@ def parse_id_list(text):
         return []
     ids = []
     for part in text.split(","):
-        if part == "" or not part.isdigit():
-            return []
-        ids.append(int(part))
+        if part == "" or not part.isdigit() or len(ids) >= MAX_SOCKETS:
+            return None
+        value = int(part)
+        if value > 1000000:
+            return None
+        ids.append(value)
     return ids
 
 
@@ -411,11 +437,16 @@ def run(core, fields):
     elif command == "select" and len(fields) >= 2:
         read_ids = parse_id_list(fields[1])
         write_ids = parse_id_list(fields[2]) if len(fields) >= 3 else []
-        result, read_ready, write_ready = core.op_select(read_ids, write_ids)
-        if result >= 0:
-            print(f"select {result} {bits(read_ready)} {bits(write_ready)}")
+        if read_ids is None or write_ids is None:
+            print(f"select {-WSAEINVAL}")
         else:
-            print(f"select {result}")
+            result, read_ready, write_ready = core.op_select(read_ids, write_ids)
+            if result >= 0:
+                print(f"select {result} {bits(read_ready)} {bits(write_ready)}")
+            else:
+                print(f"select {result}")
+    elif command == "error" and len(fields) >= 2:
+        print(f"error {fields[1]} {core.op_error(parse_id(fields[1]))}")
     else:
         print(f"? {command}")
     while core.requests:
@@ -428,7 +459,7 @@ def main():
     core = Core()
     with open(sys.argv[1], encoding="utf-8") as trace:
         for raw in trace:
-            line = raw.rstrip("\n")
+            line = raw.rstrip("\r\n")
             if not line:
                 continue
             run(core, line.split("\t"))

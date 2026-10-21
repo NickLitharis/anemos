@@ -93,6 +93,10 @@ int anem_socket_recv(int id, unsigned length, unsigned *received);
  * Validates every id first (WSAENOTSOCK for any bad one). Each ready array
  * must hold at least the corresponding count. Returns the number of ready
  * handles (an id present in both sets counts twice), or a negated error. */
+/* Pending connect error (0 when none). Non-blocking connect reports refusal
+ * through here after select marks the socket write-ready, like SO_ERROR. */
+int anem_socket_error(int id);
+
 int anem_socket_select(const int *read_ids, unsigned read_count,
                        const int *write_ids, unsigned write_count,
                        int *read_ready, int *write_ready);

@@ -50,6 +50,39 @@ SCENARIOS = {
     ],
 }
 
+SCENARIOS["listen-ready"] = [
+    "socket\tstream", "bind\t1\t0.0.0.0\t0", "listen\t1\t1",
+    "select\t1\t", "incoming\t1", "select\t1\t",
+    "accept\t1", "select\t1\t", "close\t1", "close\t2",
+]
+SCENARIOS["connect-fail"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "refused\t1",
+    "error\t1", "state\t1", "select\t1\t1",
+    "connect\t1\t10.0.0.1\t80", "error\t1", "connected\t1",
+    "error\t1", "close\t1",
+]
+SCENARIOS["reset-connecting"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "reset\t1",
+    "error\t1", "state\t1", "select\t1\t1",
+    "connect\t1\t10.0.0.1\t80", "connected\t1", "error\t1", "close\t1",
+]
+SCENARIOS["shutdown-readiness"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "connected\t1",
+    "shutdown\t1\t0", "shutdown\t1\t0", "select\t1\t1",
+    "shutdown\t1\t1", "select\t1\t1", "recv\t1\t5", "send\t1\t5",
+    "close\t1",
+]
+SCENARIOS["port-namespaces"] = [
+    "socket\tstream", "bind\t1\t0.0.0.0\t80",
+    "socket\tdgram", "bind\t2\t0.0.0.0\t80",
+    "socket\tstream", "bind\t3\t0.0.0.0\t80",
+    "state\t1", "state\t2", "state\t3",
+]
+SCENARIOS["eof-data"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "connected\t1",
+    "eof\t1", "readable\t1\t5", "select\t1\t1",
+    "recv\t1\t5", "recv\t1\t5", "close\t1",
+]
 SCENARIOS["readiness"] = [
     "socket\tstream", "connect\t1\t10.0.0.1\t80", "connected\t1",
     "select\t1\t1", "writable\t1", "select\t1\t1",
@@ -78,7 +111,9 @@ SCENARIOS["parse-edges"] = [
     "socket\tstream", "close\t1x", "state\t1",
     "listen\t1\t 2", "bind\t1\t127.0.0.1\t+80",
     "bind\t1\t127.0.0.1\t65536", "shutdown\t1\t-1",
-    "close\t1", "state\t1",
+    "close\t1", "state\t1", "close\t+1", "close\t1_0",
+    "select\t1_0\t", "select\t1000001\t",
+    "select\t1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65\t",
 ]
 SCENARIOS["broadcast"] = [
     "socket\tstream", "bind\t1\t255.255.255.255\t80",
@@ -107,8 +142,8 @@ def random_trace(rng, length=60):
             ["socket", "bind", "listen", "connect", "accept", "shutdown",
              "close", "state", "connected", "refused", "incoming",
              "send", "recv", "readable", "writable", "eof", "reset",
-             "select"],
-            weights=[4, 6, 4, 5, 4, 3, 4, 6, 3, 3, 4, 5, 5, 5, 3, 3, 3, 5])[0]
+             "select", "error"],
+            weights=[4, 6, 4, 5, 4, 3, 4, 6, 3, 3, 4, 5, 5, 5, 3, 3, 3, 5, 4])[0]
         ident = rng.choice([0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 99])
         if command == "socket":
             lines.append(f"socket\t{rng.choice(['stream', 'dgram', 'bogus'])}")
@@ -127,6 +162,8 @@ def random_trace(rng, length=60):
             lines.append(f"readable\t{ident}\t{rng.choice([0, 1, 30, 4096])}")
         elif command in ("writable", "eof", "reset"):
             lines.append(f"{command}\t{ident}")
+        elif command == "error":
+            lines.append(f"error\t{ident}")
         elif command == "select":
             def ids():
                 picks = rng.sample([0, 1, 2, 3, 4, 5, 6, 7, 99],

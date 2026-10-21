@@ -106,10 +106,24 @@ Winsock does. `select` validates every id first, then reports read readiness
 (data, EOF or reset) and write readiness (writable or reset); it **does not
 wait** — the transport owns blocking, which is P4.5's job.
 
-A datagram `connect` is immediately writable, and the fuzz pass caught the
-model disagreeing with that; the `dgram-connect` trace now pins it. The trace
-corpus is now 34 cases and the C/Python diff includes the request queue and
-select bitmaps. `socket_core.c` is 2063 bytes of `.text`.
+Review-driven semantics now in the core:
+
+- a listening socket is read-ready while a connection is queued;
+- a refused or reset connect leaves the socket `bound` with a pending error
+  (`WSAECONNREFUSED` / `WSAECONNRESET`) that `select` surfaces as write-ready
+  and `anem_socket_error` reports, like `SO_ERROR`;
+- readiness means "will not block", so shutdown directions and pending errors
+  make the corresponding set ready; a repeated shutdown is `WSAENOTCONN`;
+- a reset clears buffered bytes, and `readable` is ignored after EOF;
+- TCP and UDP port namespaces are separate;
+- both parsers are strict and bounded, overlong trace lines are rejected
+  instead of split, and CRLF traces behave like LF ones.
+
+A datagram `connect` is immediately writable; the fuzz pass caught the model
+disagreeing with that, and `dgram-connect` now pins it. The corpus is 40
+traces and the C/Python diff includes the request queue and select bitmaps;
+`anemos/winsock/socket_run.sh` is 7 checks. `socket_core.c` is 2269 bytes of
+`.text`.
 
 ## Reproducing
 
