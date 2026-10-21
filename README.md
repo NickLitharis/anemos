@@ -133,9 +133,10 @@ not published here.
   codec, a client, and an independent oracle. Done.
 - **P3 — crypto.** A modern engine (OpenSSL 3.5.7) behind the empty `rsaenh`
   slot. The engine, the provider SPI, AES (one-shot and streaming) and RSA
-  sign/verify are proved. The CryptoAPI path is proved as plumbing under Wine,
-  including the little-endian signature convention; the XP guest run remains,
-  and stock XP still verifies the provider image signature.
+  sign/verify are proved. The CryptoAPI path is proved as plumbing under Wine, including the
+  little-endian signature convention, and the in-guest SPI run is identical to
+  the host. OpenSSL is hardened against CryptoAPI RAND re-entry; stock XP
+  still verifies the provider image signature.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
   last. Started with the host-testable Winsock address layer (P4.1); the
   stack architecture — lwIP-style rewrite or ReactOS behind TDI/WSK — is the

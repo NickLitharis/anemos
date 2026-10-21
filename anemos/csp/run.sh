@@ -121,6 +121,17 @@ for pe in anemosp.dll spi_test.exe; do
     fi
 done
 
+if llvm-objdump -p "$OUT/anemosp.dll" 2>/dev/null | grep -q "SystemFunction036"; then
+    ok "the provider seeds from SystemFunction036"
+else
+    bad "the provider seeds from SystemFunction036"
+fi
+if llvm-objdump -p "$OUT/anemosp.dll" 2>/dev/null | grep -qE "Crypt(AcquireContext|GenRandom|CreateHash|SignHash|EnumProviders)"; then
+    bad "the provider imports no CryptoAPI entry points (re-entry)"
+else
+    ok "the provider imports no CryptoAPI entry points (re-entry)"
+fi
+
 step "4: negative control — a Vista import must be rejected"
 if i686-w64-mingw32-clang -O2 -Wall -Wextra -Werror \
         -o "$OUT/bad_vista.exe" "$HERE/bad_vista.c"; then
