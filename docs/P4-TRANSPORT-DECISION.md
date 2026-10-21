@@ -60,6 +60,19 @@ question below.
   preferred route is lwIP (BSD-3) behind the existing seam, with the XP
   certificate as the behavioural oracle and throughput measured in the guest.
 
+## Spike status (MIT route)
+
+- lwIP **2.2.0**, tag `STABLE-2_2_0_RELEASE`, BSD-3-Clause, fetched into
+  `~/.local/src` and built for i686 Windows with `NO_SYS` (IPv4, TCP, UDP,
+  loopif; no sockets API) into `~/.local/opt/lwip-2.2.0-i686`. It is a
+  dependency, not vendored code.
+- `anemos/net/run.sh` proves the library builds and that a UDP datagram goes
+  through lwIP's loopback netif and reaches a bound PCB
+  (`PASS lwIP loopback UDP round-trip`), with a negative control that must
+  fail. Gate: 4/4.
+- Next: the adapter from socket-core requests/events to lwIP's raw TCP/UDP
+  PCB API, then a TCP echo scenario over the same loopback.
+
 ## What this means for the P4 claim
 
 P4's gate is "Winsock conformance; throughput not worse than XP". The
