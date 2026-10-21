@@ -7,7 +7,11 @@
  * published answers through CPCreateHash/CPHashData/CPGetHashParam; provider
  * properties answer; unsupported key operations fail explicitly.
  *
- * usage: spi_test.exe anemosp.dll
+ * usage: spi_test.exe anemosp.dll [result-file]
+ *
+ * The optional result file mirrors every PASS/FAIL line. The in-guest run
+ * (P3.4) has no console the host can read, so it passes
+ * `\conftest\spi.log` and the conformance runner collects that file.
  */
 #include <stdbool.h>
 #include <stdio.h>
@@ -16,13 +20,20 @@
 #include "csp_abi.h"
 
 static unsigned failures;
+static FILE *record;   /* guest result file, NULL on the host run */
 
 static void check(int cond, const char *what)
 {
     if (cond) {
         printf("PASS %s\n", what);
+        if (record != NULL) {
+            fprintf(record, "PASS %s\n", what);
+        }
     } else {
         printf("FAIL %s\n", what);
+        if (record != NULL) {
+            fprintf(record, "FAIL %s\n", what);
+        }
         failures++;
     }
 }
@@ -831,19 +842,36 @@ static void check_stubs(HCRYPTPROV prov, HCRYPTHASH hash)
 int main(int argc, char **argv)
 {
     const char *dll_path = (argc > 1) ? argv[1] : "anemosp.dll";
-    HMODULE dll = LoadLibraryA(dll_path);
+    HMODULE dll;
     HCRYPTPROV prov = 0;
     HCRYPTPROV prov2 = 0;
     AnemVTableProvStruc vtable;
     BYTE rnd1[32];
     BYTE rnd2[32];
 
+    if (argc > 2 && argv[2][0] != '\0') {
+        record = fopen(argv[2], "w");
+        if (record == NULL) {
+            printf("FAIL cannot open %s\n", argv[2]);
+            return 1;
+        }
+        setvbuf(record, NULL, _IONBF, 0);
+    }
+
+    dll = LoadLibraryA(dll_path);
     if (dll == NULL) {
         printf("FAIL cannot load %s (error %lu)\n", dll_path,
                (unsigned long)GetLastError());
+        if (record != NULL) {
+            fprintf(record, "FAIL cannot load %s\n", dll_path);
+            fclose(record);
+        }
         return 1;
     }
     printf("loaded %s\n", dll_path);
+    if (record != NULL) {
+        fprintf(record, "loaded %s\n", dll_path);
+    }
     check_exports(dll);
 
     pAcquire = (FnAcquire)(void *)GetProcAddress(dll, "CPAcquireContext");
@@ -884,6 +912,10 @@ int main(int argc, char **argv)
         || pEncrypt == NULL || pDecrypt == NULL || pDuplicateKey == NULL
         || pGetUserKey == NULL || pVerifySignature == NULL) {
         printf("FAIL required function pointers\n");
+        if (record != NULL) {
+            fprintf(record, "FAIL required function pointers\n");
+            fclose(record);
+        }
         return 1;
     }
 
@@ -930,8 +962,21 @@ int main(int argc, char **argv)
     FreeLibrary(dll);
     if (failures != 0u) {
         printf("FAILED: %u check(s)\n", failures);
+        if (record != NULL) {
+            fprintf(record, "FAILED: %u check(s)\n", failures);
+            fclose(record);
+        }
         return 1;
     }
     printf("all CSP SPI checks pass\n");
+    if (record != NULL) {
+        fprintf(record, "all CSP SPI checks pass\n");
+        fclose(record);
+        /* Guest mode: stay on screen long enough for the host's pixel probe
+         * to see the console. The runner screenshots ~4 s after the Run box
+         * and then polls for the console to close; a fast harness would
+         * otherwise exit before either observation. */
+        Sleep(8000);
+    }
     return 0;
 }
