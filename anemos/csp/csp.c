@@ -528,6 +528,28 @@ done:
     return pkey;
 }
 
+/* CryptoAPI signatures are little-endian: rsaenh reverses the big-endian
+ * PKCS#1 integer before returning it, and expects the caller's signature in
+ * that order. Both directions go through this helper, so a signature produced
+ * here verifies in XP's own provider (and vice versa) instead of only against
+ * itself. Proven against Wine's builtin rsaenh in anemos/csp/api_run.sh. */
+#define ANEM_CSP_MAX_SIG 2048u   /* 16384-bit key, the largest import allows */
+
+static void reverse_bytes(BYTE *buf, DWORD len)
+{
+    DWORD i = 0;
+    DWORD j = len;
+
+    while (i + 1 < j) {
+        BYTE tmp = buf[i];
+
+        j--;
+        buf[i] = buf[j];
+        buf[j] = tmp;
+        i++;
+    }
+}
+
 static BOOL rsa_sign_digest(EVP_PKEY *pkey, const EVP_MD *md,
                             const BYTE *digest, DWORD digest_len,
                             LPBYTE pbSignature, LPDWORD pcbSigLen)
@@ -1707,6 +1729,9 @@ ANEM_CSP_API BOOL WINAPI CPSignHash(HCRYPTPROV hProv, HCRYPTHASH hHash,
         md = EVP_MD_CTX_get0_md(hash->md);
         result = rsa_sign_digest(key->rsa, md, digest, (DWORD)digest_len,
                                  pbSignature, pcbSigLen);
+        if (result != FALSE) {
+            reverse_bytes(pbSignature, *pcbSigLen);
+        }
     } else {
         result = fail(NTE_FAIL);
     }
@@ -1730,12 +1755,18 @@ ANEM_CSP_API BOOL WINAPI CPVerifySignature(HCRYPTPROV hProv,
     unsigned int digest_len = 0;
     const EVP_MD *md;
     BOOL result = FALSE;
+    BYTE little[ANEM_CSP_MAX_SIG];
 
     (void)szDescription;
     (void)dwFlags;
     if (pbSignature == NULL || cbSigLen == 0u) {
         return fail(ERROR_INVALID_PARAMETER);
     }
+    if (cbSigLen > sizeof little) {
+        return fail(NTE_BAD_SIGNATURE);
+    }
+    memcpy(little, pbSignature, cbSigLen);
+    reverse_bytes(little, cbSigLen);
     EnterCriticalSection(&g_lock);
     hash = hash_lookup(hHash);
     key = key_lookup(hPubKey);
@@ -1756,7 +1787,7 @@ ANEM_CSP_API BOOL WINAPI CPVerifySignature(HCRYPTPROV hProv,
         && EVP_DigestFinal_ex(tmp, digest, &digest_len) == 1) {
         md = EVP_MD_CTX_get0_md(hash->md);
         result = rsa_verify_digest(key->rsa, md, digest, (DWORD)digest_len,
-                                   pbSignature, cbSigLen);
+                                   little, cbSigLen);
     } else {
         result = fail(NTE_FAIL);
     }

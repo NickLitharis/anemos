@@ -41,7 +41,8 @@ growing set of subsystems that already pass it.
 | **P3.2a — symmetric keys + AES** | ✅ AES-128/192/256, CBC/ECB, PLAINTEXTKEYBLOB, SPI KATs | `docs/P3-CSP-SPI.md` |
 | **P3.2b — streaming cipher** | ✅ multi-call CPEncrypt/CPDecrypt, block buffering | `docs/P3-CSP-SPI.md` |
 | **P3.3 — RSA keys + sign/verify** | ✅ 1024-bit, PUBLIC/PRIVATEKEYBLOB, PKCS#1 v1.5 | `docs/P3-CSP-SPI.md` |
-| P3.4+ — XP guest run, CryptoAPI path | ⏳ next | — |
+| **P3.5 — CryptoAPI plumbing** | ✅ 7/7 under Wine; XP still verifies the image signature | `docs/P3-CSP-SPI.md` |
+| P3.4 — XP guest run | ⏳ harness ready, awaiting a writable VM disk | `docs/P3-CSP-SPI.md` |
 | P4 — network stack | ❌ not started | — |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
 
@@ -132,7 +133,9 @@ not published here.
   codec, a client, and an independent oracle. Done.
 - **P3 — crypto.** A modern engine (OpenSSL 3.5.7) behind the empty `rsaenh`
   slot. The engine, the provider SPI, AES (one-shot and streaming) and RSA
-  sign/verify are proved; the XP guest run and the CryptoAPI path remain.
+  sign/verify are proved. The CryptoAPI path is proved as plumbing under Wine,
+  including the little-endian signature convention; the XP guest run remains,
+  and stock XP still verifies the provider image signature.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
   last.
 - **P5 — the kernel proper.** Memory manager, object manager, scheduler, I/O:
