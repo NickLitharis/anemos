@@ -5,4 +5,5 @@ EXPORTS
     IoCreateSymbolicLink@8
     IoDeleteSymbolicLink@4
     MmGetSystemRoutineAddress@4
+    KeQueryInterruptTime@0
     RtlInitUnicodeString@8

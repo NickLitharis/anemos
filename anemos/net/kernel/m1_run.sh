@@ -55,8 +55,8 @@ grep -qx 'all kernel M1 observations complete' "$OUT/anemos-m1.txt" \
     || die "incomplete certificate"
 say "certificate: $OUT/anemos-m1.txt"
 cat "$OUT/anemos-m1.txt"
-for want in "service.start 1" "ioctl.ping 1" "ioctl.signature 1095648589" "service.stop 1"; do
+for want in "service.start 1" "ioctl.ping 1" "ioctl.signature 1095648589" "selftest.rc 1" "selftest.match 1" "service.stop 1"; do
     grep -qx "$want" "$OUT/anemos-m1.txt" \
         || die "K1 gate failed: missing '$want'"
 done
-say "K1 PASS: driver loaded, ping returned ANEM, driver unloaded"
+say "K2 PASS: driver loaded, ping returned ANEM, kernel lwIP self-test matched, driver unloaded"

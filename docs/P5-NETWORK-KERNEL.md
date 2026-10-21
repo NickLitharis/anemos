@@ -35,7 +35,7 @@ TDI is the XP-era interface. WSK arrived with Vista and is not the target.
 | Step | Work | Gate |
 |---|---|---|
 | K1 | Loadable driver skeleton: `DriverEntry`, device, symbolic link, IOCTL ping, unload | ✅ **passed 2026-10-22**: service starts, `\\.\AnemosNet` opens, the ping IOCTL returns `ANEM`, and the service stops; certificate in `anemos/net/kernel/xp/` |
-| K2 | lwIP in kernel, `NO_SYS`, kernel clock and pool-backed memory, an internal netif | kernel self-test returns a known checksum |
+| K2 | lwIP in kernel, `NO_SYS`, kernel clock and an internal netif | ✅ **passed 2026-10-22**: the driver loads, a UDP datagram crosses lwIP's loopback netif in kernel context, and the returned FNV-1a checksum equals an independent user-mode implementation (`254371596`). Certificate: `anemos/net/kernel/xp/anemos-k2.txt` |
 | K3 | NDIS protocol driver: bind, receive, send frames | guest can ARP and ping a host |
 | K4 | TDI surface compatible with `afd.sys` | `ping`, then `telnet`/`ftp`/HTTP through Winsock |
 | K5 | Replace `tcpip.sys` on the test image, run P4's Winsock certificate against the new stack | 47/47 or documented differences; DHCP and DNS work |
@@ -53,13 +53,29 @@ the guest and are now encoded in `anemos/net/kernel/`:
 - **A `.data` section with zero raw size was rejected.** The driver loaded only
   after the completion pointer got a non-NULL initializer, which makes the
   section file-backed. The mechanism is not documented; the workaround is.
-- Characteristics **0x10E**, SectionAlignment/FileAlignment **0x80**, subsystem
-  **5.01**, and a `.reloc` section match XP's own `beep.sys`/`tcpip.sys`.
+- Characteristics **0x10E**, subsystem **5.01**, and a `.reloc` section match
+  XP's own `beep.sys`/`tcpip.sys`.
+- **SectionAlignment 0x80 is only safe while the image is small.** The K1
+  driver (about 20 KB) loaded at 0x80. The K2 image (about 108 KB) was rejected
+  with no event-log entry at 0x80, and loaded unchanged at SectionAlignment
+  **0x1000** / FileAlignment **0x200**. The build now uses 0x1000/0x200.
 - `IofCompleteRequest` is **FASTCALL** and does not bind through the generated
   stdcall import library; resolve it with `MmGetSystemRoutineAddress`.
 - The deployment path works: a normal user-mode exe writes the `.sys` to
   `System32\drivers`, creates and starts the service, talks to the device, and
   stops it. The harness only swaps that exe over `mspaint.exe`.
+
+## K2 facts
+
+- lwIP is compiled freestanding for the driver (`build-lwip-kernel.sh`). It
+  needs local `memcpy`, `memset`, `memcmp`, `memmove`, `strlen`, `strncmp`,
+  `atoi`, and the ctype helpers; mingw declares the ctype family as dllimport,
+  so the port routes them to local functions from `arch/cc.h`.
+- `sys_now` reads `KeQueryInterruptTime` in 32-bit arithmetic (shift then
+  divide) so the driver does not need `__udivdi3`.
+- The self-test runs entirely in kernel context: `lwip_init`, the built-in
+  loopback netif, a UDP PCB, `netif_poll`, and an FNV-1a checksum of the
+  received bytes. The user-mode test computes the same checksum independently.
 
 ## Engineering constraints
 

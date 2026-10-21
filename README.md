@@ -145,7 +145,8 @@ not published here.
   next open decision (`docs/P4-NETWORK.md`).
 - **P5 — the kernel proper, with one exception.** The network stack now needs a
   kernel driver and is in scope (`docs/P5-NETWORK-KERNEL.md`); its first
-  loadable driver passed in XP on 2026-10-22. Memory manager,
+  loadable driver passed in XP on 2026-10-22, and lwIP now runs inside
+  that driver with an in-kernel loopback self-test. Memory manager,
   object manager, scheduler, I/O:
   ~60M lines with no external specification and no way to differential-test
   bit-identical internal state. Out of scope. The honest options are adopting
