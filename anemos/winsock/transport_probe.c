@@ -25,6 +25,14 @@ static void fresh(void)
     anem_loopback_init(&lb);
 }
 
+static uint32_t loopback_addr(void)
+{
+    uint32_t addr = 0;
+
+    (void)anem_inet_pton4("127.0.0.1", &addr);
+    return addr;
+}
+
 static int recv_text(int id, char *buf, unsigned cap, unsigned *got)
 {
     memset(buf, 0, cap);
@@ -33,7 +41,7 @@ static int recv_text(int id, char *buf, unsigned cap, unsigned *got)
 
 static void scenario_tcp(void)
 {
-    static const uint32_t lo = UINT32_C(0x7f000001);
+    uint32_t lo = loopback_addr();
     char buf[16];
     unsigned got = 0;
     int server;
@@ -83,7 +91,7 @@ static void scenario_tcp(void)
 
 static void scenario_refused(void)
 {
-    static const uint32_t lo = UINT32_C(0x7f000001);
+    uint32_t lo = loopback_addr();
     int client;
 
     fresh();
@@ -99,7 +107,7 @@ static void scenario_refused(void)
 
 static void scenario_backlog(void)
 {
-    static const uint32_t lo = UINT32_C(0x7f000001);
+    uint32_t lo = loopback_addr();
     char buf[8];
     unsigned got = 0;
     int server;
@@ -132,7 +140,7 @@ static void scenario_backlog(void)
 
 static void scenario_udp(void)
 {
-    static const uint32_t lo = UINT32_C(0x7f000001);
+    uint32_t lo = loopback_addr();
     char buf[16];
     unsigned got = 0;
     int a;

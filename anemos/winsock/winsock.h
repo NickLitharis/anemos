@@ -22,8 +22,11 @@
 #define ANEM_INET_ADDRSTRLEN 16
 
 /* Winsock sockaddr_in: family in host order, port and address in network
- * order, eight zero bytes of padding. Layout is guarded by _Static_assert in
- * addr.c so an ABI drift cannot pass unnoticed. */
+ * order, eight zero bytes of padding. `addr` is Winsock's u_long: its MEMORY
+ * bytes are the address octets in order, so on a little-endian host its
+ * numeric value is byte-swapped relative to the dotted-quad integer. That is
+ * the representation XP observes (validated by the P4.6 probe). Layout is
+ * guarded by _Static_assert in addr.c so an ABI drift cannot pass unnoticed. */
 typedef struct AnemSockAddrIn {
     uint16_t family;
     uint16_t port;

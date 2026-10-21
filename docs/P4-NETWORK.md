@@ -47,8 +47,15 @@ ambiguous with `255.255.255.255`, as it is on Windows.
 
 The corpus gate (`anemos/winsock/run.sh`, 6 checks) compares 586 cases
 against Python's `ipaddress`, including malformed, whitespace and leading-zero
-forms, and refuses a deliberately wrong renderer. `addr.c` is 438 bytes of
+forms, and refuses a deliberately wrong renderer. `addr.c` is 442 bytes of
 `.text`.
+
+`in_addr.S_addr` is Winsock's `u_long`: its **memory bytes** are the address
+octets in order, so on a little-endian host the numeric value is byte-swapped
+relative to the dotted-quad integer. The P4.6 twin caught that the first
+implementation stored the canonical integer, which would have made every
+`S_addr` comparison and struct field wrong despite a correct layout. The
+parser now stores `htonl(value)` and the formatters apply `ntohl` first.
 
 **Limit, stated plainly:** this proves RFC/POSIX behaviour, not XP's. XP's
 legacy `inet_addr` accepts forms the strict parser rejects, and that difference
@@ -211,8 +218,21 @@ extra all fail). The probe's own gate (`conformance_run.sh`, 9 checks) builds
 it, enforces the XP import surface, runs it under Wine only as a smoke test,
 and proves the comparator can fail.
 
-Still required before a conformance claim: the host-side twin that answers the
-same cases with our stack (the comparison target), and the actual XP run.
+`host_probe.c` is the host twin: it answers the same 47 case names with our
+socket core and loopback, and `conformance_run.sh` requires the case-name sets
+to match. Running the comparator against a Wine smoke certificate (Wine is
+**not** XP) already leaves nine open questions, recorded rather than "fixed":
+
+```
+inet_addr.short / .hex / .leadzero   XP-style legacy parsing accepts them; we are strict
+wsastring.short/.leadzero/.hex.rc    same question through WSAStringToAddress
+listen.dgram.err                     Wine says 10045 (WSAEOPNOTSUPP), we return 10022
+send.unconnected.err                 Wine says 10054, we return 10057 (WSAENOTCONN)
+ready.nonblock.write_ready           Wine says 0 after a refused connect, we say 1
+```
+
+These are exactly what the XP certificate will settle; no value is changed on
+Wine's authority. The only remaining P4.6 step is the XP run itself.
 
 ## Blocked: P4.6
 

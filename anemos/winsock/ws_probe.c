@@ -45,7 +45,15 @@ static int selftest(void)
           "ntohs inverts htons");
 
     check(anem_inet_pton4("127.0.0.1", &address) == 1
-          && address == UINT32_C(0x7f000001), "pton parses 127.0.0.1");
+          && anem_ntohl(address) == UINT32_C(0x7f000001),
+          "pton parses 127.0.0.1");
+    {
+        unsigned char bytes[4];
+
+        memcpy(bytes, &address, sizeof bytes);
+        check(bytes[0] == 127 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 1,
+              "pton stores the octets in memory order");
+    }
     check(anem_inet_pton4("0.0.0.0", &address) == 1 && address == 0,
           "pton parses 0.0.0.0");
     check(anem_inet_pton4("255.255.255.255", &address) == 1
@@ -55,26 +63,28 @@ static int selftest(void)
     check(anem_inet_pton4("1.2.3.04", &address) == 0,
           "pton rejects a leading zero");
 
-    check(anem_inet_ntop4(UINT32_C(0xc0a80101), buf, sizeof buf) != NULL
+    check(anem_inet_ntop4(anem_htonl(UINT32_C(0xc0a80101)), buf, sizeof buf) != NULL
           && strcmp(buf, "192.168.1.1") == 0, "ntop formats 192.168.1.1");
     check(anem_inet_ntop4(0, small, sizeof small) == NULL,
           "ntop rejects a short buffer");
     check(anem_inet_ntop4(0, buf, sizeof buf) != NULL
           && strcmp(buf, "0.0.0.0") == 0, "ntop formats 0.0.0.0");
 
-    check(anem_inet_addr("10.0.0.1") == UINT32_C(0x0a000001),
-          "inet_addr returns network order");
+    check(anem_ntohl(anem_inet_addr("10.0.0.1")) == UINT32_C(0x0a000001),
+          "inet_addr returns Winsock's memory order");
     check(anem_inet_addr("10.0.0") == ANEM_INADDR_NONE,
           "inet_addr returns INADDR_NONE on malformed input");
     check(anem_inet_addr("255.255.255.255") == ANEM_INADDR_NONE,
           "inet_addr is ambiguous for the broadcast address");
-    check(strcmp(anem_inet_ntoa(UINT32_C(0x7f000001)), "127.0.0.1") == 0,
+    check(strcmp(anem_inet_ntoa(anem_htonl(UINT32_C(0x7f000001))), "127.0.0.1") == 0,
           "inet_ntoa formats via the static buffer");
 
-    anem_sockaddr_in_init(&sa, UINT32_C(0x7f000001), 80);
+    (void)anem_inet_pton4("127.0.0.1", &address);
+    anem_sockaddr_in_init(&sa, address, 80);
     check(sa.family == ANEM_AF_INET, "sockaddr_in family is AF_INET (host)");
     check(sa.port == UINT16_C(0x5000), "sockaddr_in port is network order");
-    check(sa.addr == UINT32_C(0x7f000001), "sockaddr_in address is network order");
+    check(anem_ntohl(sa.addr) == UINT32_C(0x7f000001),
+          "sockaddr_in address keeps memory order");
     check(sa.zero[0] == 0 && sa.zero[7] == 0, "sockaddr_in zero padding is cleared");
 
     if (failures != 0u) {
@@ -105,14 +115,14 @@ static void run_line(char *line)
         ok = anem_inet_pton4(argument, &address);
         printf("pton\t%s\t%d", argument, ok);
         if (ok) {
-            printf("\t%08lx", (unsigned long)address);
+            printf("\t%08lx", (unsigned long)anem_ntohl(address));
         }
         printf("\n");
     } else if (strcmp(command, "addr") == 0) {
         printf("addr\t%s\t%08lx\n", argument,
-               (unsigned long)anem_inet_addr(argument));
+               (unsigned long)anem_ntohl(anem_inet_addr(argument)));
     } else if (strcmp(command, "ntop") == 0) {
-        address = parse_hex32(argument);
+        address = anem_htonl(parse_hex32(argument));
         ok = anem_inet_ntop4(address, text, sizeof text) != NULL;
         printf("ntop\t%s\t%d", argument, ok);
         if (ok) {
@@ -120,7 +130,7 @@ static void run_line(char *line)
         }
         printf("\n");
     } else if (strcmp(command, "ntoa") == 0) {
-        address = parse_hex32(argument);
+        address = anem_htonl(parse_hex32(argument));
         printf("ntoa\t%s\t%s\n", argument, anem_inet_ntoa(address));
     }
 }

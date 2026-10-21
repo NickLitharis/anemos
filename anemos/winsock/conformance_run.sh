@@ -89,7 +89,32 @@ else
     ok "a missing case is rejected"
 fi
 
-step "4: capture script"
+step "4: the host twin answers the same cases"
+if i686-w64-mingw32-clang -std=c23 -Oz -Wall -Wextra -Werror \
+        -Wconversion -Wshadow -Wcast-align -Wstrict-prototypes \
+        -Wmissing-prototypes -Wnull-dereference -I "$HERE" \
+        -o "$OUT/host_probe.exe" "$HERE/addr.c" "$HERE/socket_core.c" \
+        "$HERE/loopback.c" "$HERE/host_probe.c"; then
+    ok "host twin builds"
+    if (cd "$OUT" && timeout 60 wine host_probe.exe host-cert.txt) \
+            >/dev/null 2>&1; then
+        ok "host twin runs"
+    else
+        bad "host twin runs"
+    fi
+    cut -d' ' -f1 "$OUT/wine-cert.txt" | grep -v '^all$' >"$OUT/xp-names.txt"
+    cut -d' ' -f1 "$OUT/host-cert.txt" | grep -v '^all$' >"$OUT/host-names.txt"
+    if diff -q "$OUT/xp-names.txt" "$OUT/host-names.txt" >/dev/null 2>&1; then
+        ok "host twin covers every XP case name"
+    else
+        bad "host twin covers every XP case name"
+        diff -u "$OUT/xp-names.txt" "$OUT/host-names.txt" | head -10 | sed 's/^/    /'
+    fi
+else
+    bad "host twin builds"
+fi
+
+step "5: capture script"
 if bash -n "$HERE/winsock_xp_run.sh"; then
     ok "capture script parses"
 else

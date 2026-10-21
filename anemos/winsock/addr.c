@@ -88,8 +88,9 @@ int anem_inet_pton4(const char *src, uint32_t *dst_net)
     if (*p != '\0') {
         return 0;
     }
+    /* Store Winsock's representation: the octets in memory order. */
     address = (octet[0] << 24) | (octet[1] << 16) | (octet[2] << 8) | octet[3];
-    *dst_net = address;
+    *dst_net = anem_htonl(address);
     return 1;
 }
 
@@ -101,6 +102,7 @@ const char *anem_inet_ntop4(uint32_t src_net, char *dst, size_t size)
     if (dst == NULL || size < ANEM_INET_ADDRSTRLEN) {
         return NULL;
     }
+    src_net = anem_ntohl(src_net);       /* memory order -> dotted-quad value */
     bytes[0] = (unsigned char)(src_net >> 24);
     bytes[1] = (unsigned char)(src_net >> 16);
     bytes[2] = (unsigned char)(src_net >> 8);
