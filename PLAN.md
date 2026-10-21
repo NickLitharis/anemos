@@ -48,6 +48,7 @@ Not a roadmap — measured state as of today.
 | **P3.2a — symmetric keys + AES** | ✅ | AES-128/192/256 key objects, CBC/ECB, PKCS#5/zero padding, `PLAINTEXTKEYBLOB` import/export/duplicate, `CPDeriveKey`, one-shot `CPEncrypt`/`CPDecrypt`; SP 800-38A KATs through the SPI, 11/11 (`docs/P3-CSP-SPI.md`) |
 | **P3.2b — streaming cipher** | ✅ | Multi-call `CPEncrypt`/`CPDecrypt` with per-key EVP buffering; 5+11+16-byte encryption reproduces SP 800-38A, PKCS#5 and zero-padding streaming tests, 11/11 (`docs/P3-CSP-SPI.md`) |
 | **P3.3 — RSA keys + sign/verify** | ✅ | 1024-bit `CALG_RSA_SIGN`/`KEYX`, `PUBLICKEYBLOB`/`PRIVATEKEYBLOB` export/import (private round-trip), ephemeral `CPGetUserKey`, PKCS#1 v1.5 `CPSignHash`/`CPVerifySignature`; tamper/wrong-digest negatives, 11/11 (`docs/P3-CSP-SPI.md`) |
+| **P4.1 — Winsock address layer** | ✅ | Byte order, `sockaddr_in`, strict IPv4 `inet_pton`/`inet_ntop`/`inet_addr`/`inet_ntoa`; 586-case corpus against Python `ipaddress`, negative control rejects a wrong renderer; `addr.c` 438 B `.text` (`docs/P4-NETWORK.md`). POSIX behaviour claimed, XP quirks deferred to the P4.6 probe. |
 | **P3.5 — CryptoAPI plumbing** | ✅ Wine | Registered in a Wine prefix and driven through advapi32: acquire, hashes, random, AES-CBC vector, RSA sign/verify, plus a cross-provider check proving the little-endian CryptoAPI signature convention; 7/7 (`docs/P3-CSP-SPI.md`). Stock XP's image-signature check still blocks the real XP path. |
 
 The method is proven, P1 is written and gated
@@ -115,7 +116,7 @@ Each phase begins only when the previous gate passes.
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: engine (**done, XP-safe**), SPI skeleton (**done**), AES keys/streaming (**done**), RSA sign/verify (**done**), then the XP guest run and CryptoAPI path | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
-| **P4** | Network stack (288 C files) — largest, deliberately last | Winsock conformance; throughput not worse |
+| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1); the stack architecture (lwIP-style vs ReactOS behind TDI/WSK) is still open — `docs/P4-NETWORK.md` | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
 
 P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply before it
@@ -260,4 +261,5 @@ interfaces do not move.
 | `docs/P2-DHCP-CLIENT.md` | DHCP client: states, timers, determinism, the trace gate, limits |
 | `docs/P3-CRYPTO.md` | Crypto engine evidence, CSP ABI, the signature constraint, the RAND hazard |
 | `docs/P3-CSP-SPI.md` | CSP skeleton: implemented entry points, the LoadLibrary gate, limits |
+| `docs/P4-NETWORK.md` | Network stack: slice plan, the open architecture decision, the address-layer gate |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
