@@ -25,3 +25,6 @@ docs/m0/EvcrtMsg.h.generated
 
 # Command Code session metadata
 .commandcode/
+
+# writable VM working copy (see docs/P4-NETWORK.md / xp_run.sh)
+.vm/

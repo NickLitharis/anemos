@@ -50,9 +50,12 @@ NFTPATCH = ROOT / "tools" / "ntfspatch.py"
 # variable between a control run and a subject run is the kernel on the disk.
 # So the runner does not create a second VMX: it retargets the tree's own
 # xp.vmx (disk swapped while powered off, always restored afterwards).
-VMS_DIR = Path.home() / "vms" / "xpvmware"
+# ANEMOS_VM_DIR lets the same tree run from a writable copy when the default
+# location is on an immutable (read-only) mount. The VMX stays the tree's own.
+VMS_DIR = Path(os.environ.get("ANEMOS_VM_DIR",
+                              str(Path.home() / "vms" / "xpvmware")))
 VMX = VMS_DIR / "xp.vmx"
-DEFAULT_DISK = "xp.vmdk"          # the subject, i.e. the disk we patch
+DEFAULT_DISK = os.environ.get("ANEMOS_DEFAULT_DISK", "xp.vmdk")
 
 VNCDO = Path.home() / ".local" / "bin" / "vncdo"
 VNC = "127.0.0.1::5901"          # vncdo wants ::PORT; :PORT means display number

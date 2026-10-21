@@ -31,6 +31,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 OUT="$HERE/out"
 DISK="${XP_SUBJECT_DISK:-$HOME/vms/xpvmware/xp.vmdk}"
+# When the subject disk lives outside the tree's usual VM directory (for
+# example a writable copy on an otherwise immutable host), point the runner
+# at that directory instead of its default.
+if [ -z "${ANEMOS_VM_DIR:-}" ] && [ -n "${XP_SUBJECT_DISK:-}" ]; then
+    ANEMOS_VM_DIR=$(dirname "$DISK")
+    export ANEMOS_VM_DIR
+fi
 NTFS="$REPO/tools/ntfspatch.py"
 RUNNER="$REPO/harness/conformance/runner.py"
 GUEST_LOG='\conftest\spi.log'
