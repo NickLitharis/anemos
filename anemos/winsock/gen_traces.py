@@ -50,6 +50,30 @@ SCENARIOS = {
     ],
 }
 
+SCENARIOS["readiness"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "connected\t1",
+    "select\t1\t1", "writable\t1", "select\t1\t1",
+    "readable\t1\t30", "select\t1\t1",
+    "send\t1\t0", "recv\t1\t0",
+    "recv\t1\t10", "select\t1\t1",
+    "recv\t1\t25", "send\t1\t100", "send\t1\t100",
+    "writable\t1", "send\t1\t100",
+    "shutdown\t1\t1", "send\t1\t10",
+    "eof\t1", "select\t1\t1", "recv\t1\t10",
+    "close\t1",
+]
+SCENARIOS["reset"] = [
+    "socket\tstream", "connect\t1\t10.0.0.1\t80", "connected\t1",
+    "send\t1\t5", "reset\t1", "send\t1\t5", "recv\t1\t5",
+    "select\t1\t1", "close\t1",
+]
+SCENARIOS["select-errors"] = [
+    "select\t9\t", "select\t\t9", "select\t1,2\t",
+    "socket\tstream", "select\t1\t", "select\t\t1",
+    "connect\t1\t10.0.0.1\t80", "select\t1\t1",
+    "connected\t1", "select\t1\t1", "select\t1,1\t1,1",
+    "close\t1",
+]
 SCENARIOS["parse-edges"] = [
     "socket\tstream", "close\t1x", "state\t1",
     "listen\t1\t 2", "bind\t1\t127.0.0.1\t+80",
@@ -67,7 +91,8 @@ SCENARIOS["ephemeral-skip"] = [
 SCENARIOS["dgram-connect"] = [
     "socket\tdgram", "bind\t1\t0.0.0.0\t0", "connect\t1\t10.0.0.1\t53",
     "state\t1", "connected\t1", "state\t1",
-    "shutdown\t1\t1", "close\t1",
+    "send\t1\t100", "writable\t1", "send\t1\t100",
+    "select\t1\t1", "shutdown\t1\t1", "send\t1\t100", "close\t1",
 ]
 SCENARIOS["exhaustion"] = (
     ["socket\tstream"] * 66
@@ -80,8 +105,10 @@ def random_trace(rng, length=60):
     for _ in range(length):
         command = rng.choices(
             ["socket", "bind", "listen", "connect", "accept", "shutdown",
-             "close", "state", "connected", "refused", "incoming"],
-            weights=[4, 6, 4, 5, 4, 3, 4, 6, 3, 3, 4])[0]
+             "close", "state", "connected", "refused", "incoming",
+             "send", "recv", "readable", "writable", "eof", "reset",
+             "select"],
+            weights=[4, 6, 4, 5, 4, 3, 4, 6, 3, 3, 4, 5, 5, 5, 3, 3, 3, 5])[0]
         ident = rng.choice([0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 99])
         if command == "socket":
             lines.append(f"socket\t{rng.choice(['stream', 'dgram', 'bogus'])}")
@@ -94,6 +121,18 @@ def random_trace(rng, length=60):
             lines.append(f"listen\t{ident}\t{rng.choice([0, 1, 2, 8])}")
         elif command == "shutdown":
             lines.append(f"shutdown\t{ident}\t{rng.choice([0, 1, 2, 3])}")
+        elif command in ("send", "recv"):
+            lines.append(f"{command}\t{ident}\t{rng.choice([0, 1, 5, 100, 4096])}")
+        elif command == "readable":
+            lines.append(f"readable\t{ident}\t{rng.choice([0, 1, 30, 4096])}")
+        elif command in ("writable", "eof", "reset"):
+            lines.append(f"{command}\t{ident}")
+        elif command == "select":
+            def ids():
+                picks = rng.sample([0, 1, 2, 3, 4, 5, 6, 7, 99],
+                                   rng.choice([0, 1, 1, 2]))
+                return ",".join(str(x) for x in picks)
+            lines.append(f"select\t{ids()}\t{ids()}")
         elif command in ("accept", "close", "state", "connected", "refused",
                          "incoming"):
             lines.append(f"{command}\t{ident}")

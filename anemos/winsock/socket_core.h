@@ -28,6 +28,8 @@
 #define ANEM_WSAEISCONN 10056
 #define ANEM_WSAENOTCONN 10057
 #define ANEM_WSAECONNREFUSED 10061
+#define ANEM_WSAECONNRESET 10054
+#define ANEM_WSAESHUTDOWN 10058
 
 #define ANEM_SOCKET_MAX 64
 
@@ -56,7 +58,8 @@ typedef enum AnemSockRequestKind {
     ANEM_REQUEST_CONNECT,
     ANEM_REQUEST_SHUTDOWN,
     ANEM_REQUEST_CLOSE,
-    ANEM_REQUEST_REFUSE
+    ANEM_REQUEST_REFUSE,
+    ANEM_REQUEST_SEND
 } AnemSockRequestKind;
 
 typedef struct AnemSockRequest {
@@ -77,6 +80,22 @@ int anem_socket_connect(int id, uint32_t addr_net, uint16_t port_host);
 int anem_socket_accept(int id);
 int anem_socket_shutdown(int id, unsigned how);
 int anem_socket_close(int id);
+
+/* Data path. `send` accepts `length` bytes into the transport's queue and
+ * returns 0, or WSAEWOULDBLOCK when the transport reported no space.
+ * `recv` consumes up to `length` of the bytes the transport announced and
+ * returns 0 with `*received` set (0 means graceful EOF); it does not invent
+ * a buffer. */
+int anem_socket_send(int id, unsigned length);
+int anem_socket_recv(int id, unsigned length, unsigned *received);
+
+/* Readiness, Winsock `select` semantics without the wait: the caller polls.
+ * Validates every id first (WSAENOTSOCK for any bad one). Each ready array
+ * must hold at least the corresponding count. Returns the number of ready
+ * handles (an id present in both sets counts twice), or a negated error. */
+int anem_socket_select(const int *read_ids, unsigned read_count,
+                       const int *write_ids, unsigned write_count,
+                       int *read_ready, int *write_ready);
 AnemSockState anem_socket_state(int id);
 const char *anem_socket_state_name(AnemSockState state);
 
@@ -84,6 +103,13 @@ const char *anem_socket_state_name(AnemSockState state);
 void anem_socket_event_connected(int id);
 void anem_socket_event_refused(int id);
 void anem_socket_event_incoming(int id);
+
+/* Transport data events. Bytes announced by `readable` accumulate until
+ * `recv` consumes them; `eof` and `reset` are terminal for a direction. */
+void anem_socket_event_readable(int id, unsigned bytes);
+void anem_socket_event_writable(int id);
+void anem_socket_event_eof(int id);
+void anem_socket_event_reset(int id);
 
 /* Drain the request queue, one request per call. Returns 1 when a request was
  * written, 0 when the queue is empty. */

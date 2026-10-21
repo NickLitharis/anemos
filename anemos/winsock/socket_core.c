@@ -10,6 +10,10 @@ typedef struct SocketSlot {
     uint16_t port;
     unsigned backlog;
     unsigned pending;
+    unsigned rx_available;
+    int writable;
+    int eof;
+    int reset;
     int shut_read;
     int shut_write;
 } SocketSlot;
@@ -132,6 +136,10 @@ int anem_socket_socket(AnemSockType type)
     slot->port = 0;
     slot->backlog = 0;
     slot->pending = 0;
+    slot->rx_available = 0;
+    slot->writable = 0;
+    slot->eof = 0;
+    slot->reset = 0;
     slot->shut_read = 0;
     slot->shut_write = 0;
     emit(ANEM_REQUEST_OPEN, id, 0, 0, (unsigned)type);
@@ -219,6 +227,9 @@ int anem_socket_connect(int id, uint32_t addr_net, uint16_t port_host)
      * is complete immediately. Stream sockets wait for the transport event. */
     slot->state = (slot->type == ANEM_SOCK_DGRAM) ? ANEM_STATE_CONNECTED
                                                   : ANEM_STATE_CONNECTING;
+    if (slot->state == ANEM_STATE_CONNECTED) {
+        slot->writable = 1;
+    }
     emit(ANEM_REQUEST_CONNECT, id, addr_net, port_host, 0);
     return 0;
 }
@@ -253,6 +264,10 @@ int anem_socket_accept(int id)
     slot->port = 0;
     slot->backlog = 0;
     slot->pending = 0;
+    slot->rx_available = 0;
+    slot->writable = 1;                  /* an accepted socket can send */
+    slot->eof = 0;
+    slot->reset = 0;
     slot->shut_read = 0;
     slot->shut_write = 0;
     return new_id;
@@ -273,9 +288,11 @@ int anem_socket_shutdown(int id, unsigned how)
     }
     if (how == ANEM_SD_RECEIVE || how == ANEM_SD_BOTH) {
         slot->shut_read = 1;
+        slot->rx_available = 0;
     }
     if (how == ANEM_SD_SEND || how == ANEM_SD_BOTH) {
         slot->shut_write = 1;
+        slot->writable = 0;
     }
     emit(ANEM_REQUEST_SHUTDOWN, id, 0, 0, how);
     return 0;
@@ -319,6 +336,7 @@ void anem_socket_event_connected(int id)
 
     if (slot != NULL && slot->state == ANEM_STATE_CONNECTING) {
         slot->state = ANEM_STATE_CONNECTED;
+        slot->writable = 1;
     }
 }
 
@@ -342,6 +360,151 @@ void anem_socket_event_incoming(int id)
         slot->pending++;
     } else {
         emit(ANEM_REQUEST_REFUSE, id, 0, 0, 0);
+    }
+}
+
+int anem_socket_send(int id, unsigned length)
+{
+    SocketSlot *slot = slot_of(id);
+
+    if (slot == NULL) {
+        return fail(ANEM_WSAENOTSOCK);
+    }
+    if (slot->state != ANEM_STATE_CONNECTED) {
+        return fail(ANEM_WSAENOTCONN);
+    }
+    if (slot->reset != 0) {
+        return fail(ANEM_WSAECONNRESET);
+    }
+    if (slot->shut_write != 0) {
+        return fail(ANEM_WSAESHUTDOWN);
+    }
+    if (length == 0u) {
+        return 0;                        /* nothing to hand to the transport */
+    }
+    if (slot->writable == 0) {
+        return fail(ANEM_WSAEWOULDBLOCK);
+    }
+    /* One accepted send clears writability; the transport's writable event
+     * restores it when the queue drains. */
+    slot->writable = 0;
+    emit(ANEM_REQUEST_SEND, id, 0, 0, length);
+    return 0;
+}
+
+int anem_socket_recv(int id, unsigned length, unsigned *received)
+{
+    SocketSlot *slot = slot_of(id);
+    unsigned take;
+
+    if (received == NULL) {
+        return fail(ANEM_WSAEINVAL);
+    }
+    *received = 0;
+    if (slot == NULL) {
+        return fail(ANEM_WSAENOTSOCK);
+    }
+    if (slot->state != ANEM_STATE_CONNECTED) {
+        return fail(ANEM_WSAENOTCONN);
+    }
+    if (slot->reset != 0) {
+        return fail(ANEM_WSAECONNRESET);
+    }
+    if (slot->shut_read != 0) {
+        return fail(ANEM_WSAESHUTDOWN);
+    }
+    if (length == 0u) {
+        return 0;
+    }
+    take = (length < slot->rx_available) ? length : slot->rx_available;
+    if (take > 0u) {
+        slot->rx_available -= take;
+        *received = take;
+        return 0;
+    }
+    if (slot->eof != 0) {
+        return 0;                        /* graceful close: zero bytes */
+    }
+    return fail(ANEM_WSAEWOULDBLOCK);
+}
+
+int anem_socket_select(const int *read_ids, unsigned read_count,
+                       const int *write_ids, unsigned write_count,
+                       int *read_ready, int *write_ready)
+{
+    int ready = 0;
+
+    if ((read_count > 0u && (read_ids == NULL || read_ready == NULL))
+        || (write_count > 0u && (write_ids == NULL || write_ready == NULL))) {
+        return fail(ANEM_WSAEINVAL);
+    }
+    for (unsigned i = 0; i < read_count; i++) {
+        if (slot_of(read_ids[i]) == NULL) {
+            return fail(ANEM_WSAENOTSOCK);
+        }
+    }
+    for (unsigned i = 0; i < write_count; i++) {
+        if (slot_of(write_ids[i]) == NULL) {
+            return fail(ANEM_WSAENOTSOCK);
+        }
+    }
+    for (unsigned i = 0; i < read_count; i++) {
+        const SocketSlot *slot = slot_of(read_ids[i]);
+
+        read_ready[i] = (slot->rx_available > 0u || slot->eof != 0
+                         || slot->reset != 0) ? 1 : 0;
+        ready += read_ready[i];
+    }
+    for (unsigned i = 0; i < write_count; i++) {
+        const SocketSlot *slot = slot_of(write_ids[i]);
+
+        write_ready[i] = (slot->writable != 0 || slot->reset != 0) ? 1 : 0;
+        ready += write_ready[i];
+    }
+    return ready;
+}
+
+void anem_socket_event_readable(int id, unsigned bytes)
+{
+    SocketSlot *slot = slot_of(id);
+
+    if (slot == NULL || slot->state != ANEM_STATE_CONNECTED || slot->reset != 0) {
+        return;
+    }
+    if (slot->shut_read == 0) {
+        if (slot->rx_available > UINT32_MAX - bytes) {
+            slot->rx_available = UINT32_MAX;
+        } else {
+            slot->rx_available += bytes;
+        }
+    }
+}
+
+void anem_socket_event_writable(int id)
+{
+    SocketSlot *slot = slot_of(id);
+
+    if (slot != NULL && slot->state == ANEM_STATE_CONNECTED
+        && slot->shut_write == 0 && slot->reset == 0) {
+        slot->writable = 1;
+    }
+}
+
+void anem_socket_event_eof(int id)
+{
+    SocketSlot *slot = slot_of(id);
+
+    if (slot != NULL && slot->state == ANEM_STATE_CONNECTED) {
+        slot->eof = 1;
+    }
+}
+
+void anem_socket_event_reset(int id)
+{
+    SocketSlot *slot = slot_of(id);
+
+    if (slot != NULL && slot->state == ANEM_STATE_CONNECTED) {
+        slot->reset = 1;
     }
 }
 
