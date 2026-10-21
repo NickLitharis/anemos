@@ -44,6 +44,13 @@ So P4.5 is not only "lwIP versus ReactOS"; it is also a **scope decision**:
 either the P5 boundary is renegotiated to allow a kernel transport driver, or
 P4 ships the user-space surface without a packet transport.
 
+## Decision (2026-10-21)
+
+**MIT stays.** ReactOS is rejected: adopting its stack would force the combined
+deliverable to GPL/LGPL. lwIP (BSD-3) is the only remaining candidate because
+its licence is compatible; its integration is still gated on the kernel-scope
+question below.
+
 ## Recommendation
 
 - Keep MIT and do **not** adopt ReactOS.
