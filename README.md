@@ -43,7 +43,7 @@ growing set of subsystems that already pass it.
 | **P3.3 — RSA keys + sign/verify** | ✅ 1024-bit, PUBLIC/PRIVATEKEYBLOB, PKCS#1 v1.5 | `docs/P3-CSP-SPI.md` |
 | **P3.5 — CryptoAPI plumbing** | ✅ 7/7 under Wine; XP still verifies the image signature | `docs/P3-CSP-SPI.md` |
 | **P3.4 — XP guest run** | ✅ 163/163, identical to the host run | `docs/P3-CSP-SPI.md` |
-| **P4 — network stack** | 🔄 P4.1-P4.5 gated; P4.6 probe ready, XP run pending; real provider still open | `docs/P4-NETWORK.md` |
+| **P4 — network stack** | 🔄 P4.1-P4.4 gated, P4.6 XP-conformant (47/47), P4.5 seam + loopback; real provider still open | `docs/P4-NETWORK.md` |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
 
 **P2 is complete.** The DNS and DHCP codecs, their clients, and a deterministic

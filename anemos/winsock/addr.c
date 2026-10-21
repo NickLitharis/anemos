@@ -121,14 +121,102 @@ const char *anem_inet_ntop4(uint32_t src_net, char *dst, size_t size)
     return dst;
 }
 
+/* BSD/XP legacy form: 1-4 parts, each decimal, octal (leading 0) or hex
+ * (0x). A leading space is XP's quirk: inet_addr(" 1.2.3.4") returns 0, not
+ * INADDR_NONE. The strict inet_pton path above deliberately stays strict. */
+static int parse_legacy_part(const char **pp, uint32_t *out)
+{
+    const char *p = *pp;
+    unsigned base = 10;
+    uint32_t value = 0;
+    unsigned digits = 0;
+
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        base = 16;
+        p += 2;
+    } else if (p[0] == '0' && p[1] != '\0' && p[1] != '.') {
+        base = 8;
+        p += 1;
+    }
+    for (;;) {
+        unsigned digit;
+
+        if (*p >= '0' && *p <= '9') {
+            digit = (unsigned)(*p - '0');
+        } else if (base == 16 && *p >= 'a' && *p <= 'f') {
+            digit = (unsigned)(*p - 'a') + 10u;
+        } else if (base == 16 && *p >= 'A' && *p <= 'F') {
+            digit = (unsigned)(*p - 'A') + 10u;
+        } else {
+            break;
+        }
+        if (digit >= base || value > (UINT32_MAX - digit) / base) {
+            return 0;
+        }
+        value = value * base + digit;
+        digits++;
+        p++;
+    }
+    if (digits == 0u) {
+        return 0;
+    }
+    *pp = p;
+    *out = value;
+    return 1;
+}
+
 uint32_t anem_inet_addr(const char *src)
 {
-    uint32_t address;
+    uint32_t parts[4];
+    unsigned count = 0;
+    const char *p = src;
+    uint32_t value;
 
-    if (!anem_inet_pton4(src, &address)) {
+    if (src == NULL) {
         return ANEM_INADDR_NONE;
     }
-    return address;
+    if (*p == ' ') {
+        return 0;                        /* the XP quirk, recorded by P4.6 */
+    }
+    while (*p != '\0' && count < 4u) {
+        if (!parse_legacy_part(&p, &parts[count])) {
+            return ANEM_INADDR_NONE;
+        }
+        count++;
+        if (*p == '.') {
+            p++;
+            if (*p == '\0') {
+                return ANEM_INADDR_NONE;
+            }
+        } else if (*p != '\0') {
+            return ANEM_INADDR_NONE;
+        }
+    }
+    if (*p != '\0' || count == 0u) {
+        return ANEM_INADDR_NONE;
+    }
+    for (unsigned i = 0; i + 1u < count; i++) {
+        if (parts[i] > 255u) {
+            return ANEM_INADDR_NONE;
+        }
+    }
+    switch (count) {
+    case 1:
+        return anem_htonl(parts[0]);
+    case 2:
+        if (parts[1] > UINT32_C(0x00ffffff)) return ANEM_INADDR_NONE;
+        value = (parts[0] << 24) | parts[1];
+        break;
+    case 3:
+        if (parts[2] > UINT32_C(0x0000ffff)) return ANEM_INADDR_NONE;
+        value = (parts[0] << 24) | (parts[1] << 16) | parts[2];
+        break;
+    default:
+        if (parts[3] > 255u) return ANEM_INADDR_NONE;
+        value = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+        break;
+    }
+    return anem_htonl(value);
 }
 
 const char *anem_inet_ntoa(uint32_t src_net)
