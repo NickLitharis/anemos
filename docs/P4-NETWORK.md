@@ -32,7 +32,7 @@ the bottom layer.
 |---|---|---|
 | P4.1 | Address layer: byte order, IPv4 text parse/format, `sockaddr_in`, `inet_*` names | differential corpus against an independent implementation; XP probe later |
 | P4.2 | Socket core: `socket`/`bind`/`connect`/`listen`/`accept`/`shutdown`/`close` state machine over an injectable transport — **done** | differential against an independent model, no sockets in the tests |
-| P4.3 | Readiness: `select`/`poll`, timeouts, non-blocking semantics, cancellation | deterministic scenario suite |
+| P4.3 | Readiness/data path: `select` over read/write sets, non-blocking send/recv, EOF/reset | differential against the same model — **done (no blocking wait; the caller polls)** |
 | P4.4 | The XP socket path for the DNS resolver, closing P2's deferred gap | resolver differential over the socket core |
 | P4.5 | Transport provider: TDI/WSK or the adopted stack, decided by measurement | throughput not worse than XP |
 | P4.6 | Winsock conformance probe in XP | observed behaviour identical to XP's own Winsock |
@@ -94,6 +94,22 @@ same corpus, and a 30,000-operation fuzz run stayed identical.
 timing; those are P4.3. It also does not claim XP behaviour — Winsock's own
 edge cases (for example `listen` on a datagram socket) still need the P4.6
 probe.
+
+## P4.3 — readiness and the data path (done)
+
+The core now tracks what a transport would announce: queued receive bytes,
+writability, graceful EOF and reset. `send` accepts bytes only while the
+transport says the socket is writable and clears the flag until the transport
+announces writability again; `recv` consumes from the announced byte count and
+returns zero bytes on EOF; both return `WSAECONNRESET`/`WSAESHUTDOWN` where
+Winsock does. `select` validates every id first, then reports read readiness
+(data, EOF or reset) and write readiness (writable or reset); it **does not
+wait** — the transport owns blocking, which is P4.5's job.
+
+A datagram `connect` is immediately writable, and the fuzz pass caught the
+model disagreeing with that; the `dgram-connect` trace now pins it. The trace
+corpus is now 34 cases and the C/Python diff includes the request queue and
+select bitmaps. `socket_core.c` is 2063 bytes of `.text`.
 
 ## Reproducing
 
