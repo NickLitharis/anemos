@@ -126,7 +126,8 @@ Each phase begins only when the previous gate passes.
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: engine (**done, XP-safe**), SPI skeleton (**done**), AES keys/streaming (**done**), RSA sign/verify (**done**), the XP guest run (**done**), then the CryptoAPI path | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
 | **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the licence decision is settled (MIT; ReactOS rejected), the transport itself is blocked on the kernel/P5 scope question — `docs/P4-TRANSPORT-DECISION.md` | Winsock conformance; throughput not worse |
-| **P5** | Kernel proper | **Out of scope.** See below. |
+| **K1 — loadable Anemos driver** | ✅ | clang + mingw DDK headers, generated `ntoskrnl` import library, XP image rules (checksum, alignment, `.data`), device + IOCTL ping + unload in the guest; gate: `anemos/net/kernel/m1_run.sh` (`docs/P5-NETWORK-KERNEL.md`). |
+| **P5** | Kernel proper, **except the network stack** | Out of scope except the network transport, by owner decision: `docs/P5-NETWORK-KERNEL.md`. Everything else in P5 stays out. |
 
 P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply before it
 is asked to judge anything hard.
