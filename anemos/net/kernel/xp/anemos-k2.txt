@@ -1,0 +1,16 @@
+driver.write 1
+service.manager 1
+control.beep.start 0
+control.beep.start.err 183
+service.create 1
+service.start 1
+device.open 1
+ioctl.ping 1
+ioctl.signature 1095648589
+selftest.rc 1
+selftest.value 254371596
+selftest.expected 254371596
+selftest.match 1
+service.stop 1
+service.delete 1
+all kernel M1 observations complete

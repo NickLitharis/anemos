@@ -15,12 +15,122 @@
  */
 #include <ntddk.h>
 
+#include "lwip/init.h"
+#include "lwip/ip_addr.h"
+#include "lwip/netif.h"
+#include "lwip/pbuf.h"
+#include "lwip/timeouts.h"
+#include "lwip/udp.h"
+
 #define ANEM_DEVICE_NAME L"\\Device\\AnemosNet"
 #define ANEM_DOS_NAME L"\\DosDevices\\AnemosNet"
 #define ANEM_PING_SIGNATURE 0x414E454DUL   /* 'ANEM' */
 
 #define IOCTL_ANEMOS_PING \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NET_SELFTEST \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+/* lwIP has no OS clock under NO_SYS. KeQueryInterruptTime counts 100 ns
+ * units; shift and divide in 32 bits so no libgcc helper is needed. */
+u32_t sys_now(void)
+{
+    return (u32_t)((KeQueryInterruptTime() >> 4) / 625u);
+}
+
+static unsigned char selftest_payload[32];
+static u16_t selftest_length;
+static int selftest_received;
+
+static void on_selftest_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p,
+                            const ip_addr_t *address, u16_t port)
+{
+    (void)arg;
+    (void)pcb;
+    (void)address;
+    (void)port;
+    if (p != NULL) {
+        u16_t copy = p->tot_len < sizeof selftest_payload
+                   ? p->tot_len : (u16_t)sizeof selftest_payload;
+        (void)pbuf_copy_partial(p, selftest_payload, copy, 0);
+        selftest_length = copy;
+        selftest_received = 1;
+        pbuf_free(p);
+    }
+}
+
+static ULONG fnv1a(const unsigned char *data, u16_t length)
+{
+    ULONG hash = 2166136261UL;
+
+    for (u16_t i = 0; i < length; i++) {
+        hash ^= data[i];
+        hash *= 16777619UL;
+    }
+    return hash;
+}
+
+/* K2: prove lwIP runs in kernel context. A UDP datagram goes through the
+ * built-in loopback netif and comes back to a bound PCB; the IOCTL returns a
+ * checksum of the received bytes so the user-mode test can compare it with an
+ * independent implementation. */
+static ULONG run_lwip_selftest(void)
+{
+    static int lwip_started;
+    struct netif *loop = NULL;
+    struct udp_pcb *pcb;
+    struct pbuf *packet;
+    ip_addr_t destination;
+    const char *text = "anemos-kernel";
+    u16_t length = (u16_t)strlen(text);
+
+    if (!lwip_started) {
+        lwip_init();
+        lwip_started = 1;
+    }
+    for (struct netif *walk = netif_list; walk != NULL; walk = walk->next) {
+        if (walk->name[0] == 'l' && walk->name[1] == 'o' && netif_is_up(walk)) {
+            loop = walk;
+            break;
+        }
+    }
+    if (loop == NULL) {
+        return 0;
+    }
+    pcb = udp_new();
+    if (pcb == NULL) {
+        return 0;
+    }
+    IP_ADDR4(&destination, 127, 0, 0, 1);
+    if (udp_bind(pcb, &destination, 5556) != ERR_OK) {
+        udp_remove(pcb);
+        return 0;
+    }
+    selftest_received = 0;
+    selftest_length = 0;
+    udp_recv(pcb, on_selftest_udp, NULL);
+    packet = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
+    if (packet == NULL || pbuf_take(packet, text, length) != ERR_OK) {
+        if (packet != NULL) {
+            pbuf_free(packet);
+        }
+        udp_remove(pcb);
+        return 0;
+    }
+    if (udp_sendto(pcb, packet, &destination, 5556) != ERR_OK) {
+        pbuf_free(packet);
+        udp_remove(pcb);
+        return 0;
+    }
+    pbuf_free(packet);
+    netif_poll(loop);
+    sys_check_timeouts();
+    udp_remove(pcb);
+    if (!selftest_received) {
+        return 0;
+    }
+    return fnv1a(selftest_payload, selftest_length);
+}
 
 /* IofCompleteRequest is FASTCALL, which the generated import library cannot
  * name without a decoration mismatch. Resolve it at runtime through
@@ -66,11 +176,15 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
     ULONG_PTR information = 0;
 
     (void)device;
-    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_PING) {
+    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_PING
+        || stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NET_SELFTEST) {
         if (stack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(ULONG)) {
             status = STATUS_BUFFER_TOO_SMALL;
         } else {
-            *(ULONG *)irp->AssociatedIrp.SystemBuffer = ANEM_PING_SIGNATURE;
+            ULONG answer = stack->Parameters.DeviceIoControl.IoControlCode
+                                 == IOCTL_ANEMOS_PING
+                         ? ANEM_PING_SIGNATURE : run_lwip_selftest();
+            *(ULONG *)irp->AssociatedIrp.SystemBuffer = answer;
             information = sizeof(ULONG);
             status = STATUS_SUCCESS;
         }

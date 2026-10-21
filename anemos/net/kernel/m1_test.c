@@ -15,6 +15,19 @@
 #define ANEM_PING_SIGNATURE 0x414E454DUL   /* 'ANEM' */
 #define IOCTL_ANEMOS_PING \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NET_SELFTEST \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+static unsigned long fnv1a(const char *text)
+{
+    unsigned long hash = 2166136261UL;
+
+    while (*text != '\0') {
+        hash ^= (unsigned char)*text++;
+        hash *= 16777619UL;
+    }
+    return hash;
+}
 #define DRIVER_PATH "C:\\windows\\system32\\drivers\\anemosnet.sys"
 #define DRIVER_REG_PATH L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\AnemosNet"
 
@@ -153,6 +166,18 @@ int main(int argc, char **argv)
             report("ioctl.ping.err", (unsigned long)GetLastError());
         }
         report("ioctl.signature", (unsigned long)answer);
+        ok = DeviceIoControl(device, IOCTL_ANEMOS_NET_SELFTEST, NULL, 0,
+                             &answer, sizeof answer, &returned, NULL);
+        report("selftest.rc", ok ? 1u : 0u);
+        if (!ok) {
+            report("selftest.err", (unsigned long)GetLastError());
+        }
+        {
+            unsigned long expected = fnv1a("anemos-kernel");
+            report("selftest.value", (unsigned long)answer);
+            report("selftest.expected", expected);
+            report("selftest.match", answer == expected ? 1u : 0u);
+        }
         CloseHandle(device);
     }
     if (service != NULL) {
