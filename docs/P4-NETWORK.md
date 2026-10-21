@@ -33,7 +33,7 @@ the bottom layer.
 | P4.1 | Address layer: byte order, IPv4 text parse/format, `sockaddr_in`, `inet_*` names | differential corpus against an independent implementation; XP probe later |
 | P4.2 | Socket core: `socket`/`bind`/`connect`/`listen`/`accept`/`shutdown`/`close` state machine over an injectable transport — **done** | differential against an independent model, no sockets in the tests |
 | P4.3 | Readiness/data path: `select` over read/write sets, non-blocking send/recv, EOF/reset | differential against the same model — **done (no blocking wait; the caller polls)** |
-| P4.4 | The XP socket path for the DNS resolver, closing P2's deferred gap | resolver differential over the socket core |
+| P4.4 | The socket path for the DNS resolver, closing P2's deferred gap — **done** | resolver differential over the socket core |
 | P4.5 | Transport provider: TDI/WSK or the adopted stack, decided by measurement | throughput not worse than XP |
 | P4.6 | Winsock conformance probe in XP | observed behaviour identical to XP's own Winsock |
 
@@ -125,9 +125,65 @@ traces and the C/Python diff includes the request queue and select bitmaps;
 `anemos/winsock/socket_run.sh` is 7 checks. `socket_core.c` is 2269 bytes of
 `.text`.
 
+## P4.4 — the resolver over the socket path (done)
+
+`anemos/dns/resolver.*` is the glue P2 left out. It builds the query with the
+P2 client, opens a datagram socket through the P4 socket core, sends, takes
+injected frames, and retries on explicit time. Nothing blocks and nothing
+allocates: the caller delivers packets and ticks the timer.
+
+Scope and deliberate limits:
+
+- A and AAAA, one server, in-message CNAME chains (the P2 client walks them).
+- A chain that ends without an address is `DNS` with client status `CNAME` for
+  the caller to restart; the TC bit is `DNS` with `TRUNCATED` (no TCP fallback).
+- A retry closes the old socket and opens a new one, so retransmission never
+  depends on the transport restoring writability.
+- A stray or malformed frame leaves the transaction pending; a frame after a
+  terminal outcome is ignored.
+- Starting again reuses the configured seed, so a transaction is reproducible.
+
+The gate (`anemos/dns/resolver_run.sh`, 8 checks) runs 18 traces: basic A and
+AAAA, wrong id then the real answer, NXDOMAIN, TC, malformed then retry, a
+timer sequence through retry to timeout, CNAME chain, CNAME-only, empty answer,
+invalid name, invalid server, an abandoned transaction, a restart, a packet
+before `init`, an unsupported type, a trailing-dot name, and values that
+exercise 32/64-bit masking. The Python model orchestrates the independent
+Python socket and DNS-client models; the diff covers the DNS status, the
+client status, and every socket request.
+
+The review pass tightened it further: `start` aborts an in-flight client
+without resetting its LCG, so a restart gets a fresh xid (retries keep it);
+an invalid start cancels the old socket instead of leaking it; deadlines
+saturate instead of wrapping; client `BADARG`/`BADSTATE` map to resolver
+`BADARG`; the negative control now lives in the probe and must flip every
+trace that expects `result ok`; the corpus is regenerated from scratch,
+checked for its exact size, and asserted to reach ok, dns and timeout. Both
+processes run under a timeout and their exit status is checked. `resolver.c`
+is 914 bytes of `.text`; P2's own gate still reports 24/24.
+
+## Blocked: P4.5 and P4.6
+
+- **P4.5 — transport provider.** The surface is measured; the stack behind it
+  is not chosen. A lwIP-style rewrite versus ReactOS behind TDI/WSK is a
+  licence-and-effort decision, not something a slice can settle by writing
+  more glue. Its gate ("throughput not worse than XP") also needs the guest.
+- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
+  remounted read-only after ext4 errors, so the VMDKs cannot be patched or
+  booted. Nothing in P4.1-P4.4 claims XP behaviour: XP's legacy parser quirks,
+  `listen` on datagram sockets and the exact readiness edges are explicitly
+  deferred to this probe.
+- **P3's guest gates** (RAND hardening for the `rsaenh` slot, the SPI run and
+  the CryptoAPI path in XP) remain open for the same reason.
+
+The honest claim for P4 today is therefore: the user-space socket surface and
+the resolver glue are written and host-tested against independent models, with
+no XP conformance claim and no transport underneath.
+
 ## Reproducing
 
 ```sh
 anemos/winsock/run.sh          # P4.1 address layer: 6/6
-anemos/winsock/socket_run.sh   # P4.2 socket core: 5/5
+anemos/winsock/socket_run.sh   # P4.2/4.3 socket core: 7/7
+anemos/dns/resolver_run.sh     # P4.4 resolver: 5/5
 ```

@@ -61,6 +61,13 @@ AnemDnsClientStatus anem_dns_client_init(AnemDnsClient *cl, uint32_t seed)
     return ANEM_DNS_CLIENT_OK;
 }
 
+void anem_dns_client_abort(AnemDnsClient *cl)
+{
+    if (cl != NULL) {
+        cl->pending = false;
+    }
+}
+
 AnemDnsClientStatus anem_dns_client_query(AnemDnsClient *cl,
                                           const AnemDnsName *name,
                                           uint16_t qtype, uint16_t qclass,

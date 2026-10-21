@@ -57,6 +57,11 @@ typedef struct AnemDnsClient {
 
 AnemDnsClientStatus anem_dns_client_init(AnemDnsClient *cl, uint32_t seed);
 
+/* Drop a pending transaction without touching the LCG state, so the next
+ * query gets a fresh id. Used when a resolver start replaces an in-flight
+ * lookup. */
+void anem_dns_client_abort(AnemDnsClient *cl);
+
 /* Build a recursive query into `out`. qtype must be A or AAAA. The details
  * needed to match the response are stored in `cl`. BADSTATE if a query is
  * already pending. */
