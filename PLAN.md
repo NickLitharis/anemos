@@ -124,7 +124,7 @@ Each phase begins only when the previous gate passes.
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: engine (**done, XP-safe**), SPI skeleton (**done**), AES keys/streaming (**done**), RSA sign/verify (**done**), the XP guest run (**done**), then the CryptoAPI path | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
-| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the stack architecture (lwIP-style vs ReactOS behind TDI/WSK) is still open — `docs/P4-NETWORK.md` | Winsock conformance; throughput not worse |
+| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the transport decision is blocked on the kernel/P5 scope question — `docs/P4-TRANSPORT-DECISION.md` | Winsock conformance; throughput not worse |
 | **P5** | Kernel proper | **Out of scope.** See below. |
 
 P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply before it
@@ -269,5 +269,6 @@ interfaces do not move.
 | `docs/P2-DHCP-CLIENT.md` | DHCP client: states, timers, determinism, the trace gate, limits |
 | `docs/P3-CRYPTO.md` | Crypto engine evidence, CSP ABI, the signature constraint, the RAND hazard |
 | `docs/P3-CSP-SPI.md` | CSP skeleton: implemented entry points, the LoadLibrary gate, limits |
-| `docs/P4-NETWORK.md` | Network stack: slice plan, the open architecture decision, the address-layer gate |
+| `docs/P4-NETWORK.md` | Network stack: slice plan, the transport decision, the address-layer gate |
+| `docs/P4-TRANSPORT-DECISION.md` | P4.5 memo: lwIP vs ReactOS vs stop; the kernel boundary |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |

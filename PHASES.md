@@ -15,6 +15,7 @@ the repository or rewriting history.
 | `phase-p3.2a` | `a32df57` | P3.2a: symmetric key objects and one-shot AES — AES-128/192/256, CBC/ECB, PKCS#5/zero padding, `PLAINTEXTKEYBLOB`, derivation, SP 800-38A vectors through the SPI. |
 | `phase-p3.2b` | `61cd384` | P3.2b: streaming `CPEncrypt`/`CPDecrypt` — per-key EVP buffering, multi-call block semantics, PKCS#5/zero padding, reset on final/parameter changes. |
 | `phase-p3.3` | `0adf1af` | P3.3: RSA key pairs — `PUBLICKEYBLOB`/`PRIVATEKEYBLOB` import/export, ephemeral `CPGetUserKey`, PKCS#1 v1.5 `CPSignHash`/`CPVerifySignature`. |
+| `phase-p3.4` | `971b975` | P3.4: the SPI harness inside XP via `LoadLibrary` — 163 checks, PASS/FAIL identical to the host; certificates in `anemos/csp/xp/`. |
 
 P3 is **in progress**. There is deliberately no `phase-p3` tag yet; it will be
 created when the P3 gate passes (symmetric keys, RSA, the XP run, the CryptoAPI

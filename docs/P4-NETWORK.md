@@ -193,9 +193,11 @@ assertions and the final banner, rejects a build that drops one byte in
 transit, and keeps `loopback.c` (1061 B) and `socket_core.c` (2318 B) inside
 the 8 KB budget.
 
-**Still open:** the bottom half. A lwIP-style rewrite versus ReactOS behind
-TDI/WSK is a licence-and-effort decision, not something more glue can settle;
-its gate ("throughput not worse than XP") also needs the guest.
+**Still open:** the bottom half. `docs/P4-TRANSPORT-DECISION.md` records the
+options and the real constraint: XP's transport is `tcpip.sys`, a kernel
+driver, so choosing a stack also means renegotiating the P5 boundary. The
+recommendation is to keep MIT, not adopt ReactOS, and not vendor lwIP until
+kernel-mode work is in scope.
 
 ## P4.6 — the XP observation probe (code ready)
 
