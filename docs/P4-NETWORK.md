@@ -35,7 +35,7 @@ the bottom layer.
 | P4.3 | Readiness/data path: `select` over read/write sets, non-blocking send/recv, EOF/reset | differential against the same model — **done (no blocking wait; the caller polls)** |
 | P4.4 | The socket path for the DNS resolver, closing P2's deferred gap — **done** | resolver differential over the socket core |
 | P4.5 | Transport seam + loopback reference transport (**done**); the real provider (TDI/WSK or the adopted stack) is still the open decision | loopback scenarios; the real gate is throughput not worse than XP |
-| P4.6 | Winsock conformance probe in XP | observed behaviour identical to XP's own Winsock |
+| P4.6 | Winsock conformance probe in XP — **probe and capture path done, execution blocked** | observed behaviour identical to XP's own Winsock |
 
 ## P4.1 — the address layer (done)
 
@@ -185,13 +185,42 @@ the 8 KB budget.
 TDI/WSK is a licence-and-effort decision, not something more glue can settle;
 its gate ("throughput not worse than XP") also needs the guest.
 
+## P4.6 — the XP observation probe (code ready)
+
+`anemos/winsock/xp_probe.c` runs a scripted set of observations inside XP and
+writes a `case value` certificate. It covers exactly the questions earlier
+slices deferred: legacy `inet_addr` parsing (short/hex/leading-zero/space),
+`WSAStringToAddress` vs strict parsing, `connect` refusal and retry, bind
+conflicts, TCP-vs-UDP port namespaces, `listen` on a datagram socket,
+unconnected `send`/`shutdown`, `select` on a bad socket, listener readability
+with a queued connection, accepted-socket writability, readiness after
+`shutdown(SD_SEND)`, and non-blocking connect plus `SO_ERROR`.
+
+Two facts are already established by building it: XP's `ws2_32` does **not**
+export `inet_pton`/`inet_ntop` (they arrive with Vista), so those names are
+not part of the XP surface — the probe uses `WSAStringToAddress` /
+`WSAAddressToString`, which XP does export, and the import gate enforces it.
+Our own `inet_pton`/`inet_ntop` remain a modern convenience, not a claimed XP
+API.
+
+`winsock_xp_run.sh` is the capture path: one victim (`mspaint.exe`), the
+probe's certificate under `\conftest`, backup/restore on every exit path, the
+same writable-VM handling as `xp_run.sh`. `conformance_compare.py` diffs the
+guest certificate against the host twin case by case (changed, missing and
+extra all fail). The probe's own gate (`conformance_run.sh`, 9 checks) builds
+it, enforces the XP import surface, runs it under Wine only as a smoke test,
+and proves the comparator can fail.
+
+Still required before a conformance claim: the host-side twin that answers the
+same cases with our stack (the comparison target), and the actual XP run.
+
 ## Blocked: P4.6
 
-- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
-  remounted read-only after ext4 errors, so the VMDKs cannot be patched or
-  booted. Nothing in P4.1-P4.5 claims XP behaviour: XP's legacy parser quirks,
-  `listen` on datagram sockets and the exact readiness edges are explicitly
-  deferred to this probe.
+- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem is
+  read-only and VMware cannot start (setuid-to-nobody `vmware-vmx`, no
+  `/dev/vmmon`; both need root). Nothing in P4.1-P4.5 claims XP behaviour:
+  XP's legacy parser quirks, `listen` on datagram sockets and the exact
+  readiness edges are explicitly deferred to this probe.
 - **P3's guest gates** (RAND hardening for the `rsaenh` slot, the SPI run and
   the CryptoAPI path in XP) remain open for the same reason.
 - **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
@@ -212,5 +241,6 @@ no XP conformance claim and no transport underneath.
 anemos/winsock/run.sh          # P4.1 address layer: 6/6
 anemos/winsock/socket_run.sh   # P4.2/4.3 socket core: 7/7
 anemos/winsock/transport_run.sh # P4.5 seam + loopback: 7/7
+anemos/winsock/conformance_run.sh # P4.6 probe + comparator: 9/9
 anemos/dns/resolver_run.sh      # P4.4 resolver: 8/8
 ```
