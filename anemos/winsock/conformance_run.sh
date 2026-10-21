@@ -123,7 +123,20 @@ else
     bad "host twin builds"
 fi
 
-step "5: capture script"
+step "5: the host twin reproduces the XP certificate"
+if [ -f "$HERE/xp/winsock-cert.txt" ]; then
+    if python3 "$HERE/conformance_compare.py" "$HERE/xp/winsock-cert.txt" \
+            "$OUT/host-cert.txt" >"$OUT/xp-compare.log" 2>&1; then
+        ok "host twin is identical to the XP certificate"
+    else
+        bad "host twin is identical to the XP certificate"
+        head -12 "$OUT/xp-compare.log" | sed 's/^/    /'
+    fi
+else
+    bad "host twin is identical to the XP certificate (no certificate)"
+fi
+
+step "6: capture script"
 if bash -n "$HERE/winsock_xp_run.sh"; then
     ok "capture script parses"
 else

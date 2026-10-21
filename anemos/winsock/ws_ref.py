@@ -16,6 +16,50 @@ def parse(text):
         return None
 
 
+def legacy_part(text):
+    if text == "":
+        return None
+    if text.lower().startswith("0x"):
+        base, digits = 16, text[2:]
+    elif len(text) > 1 and text[0] == "0":
+        base, digits = 8, text[1:]
+    else:
+        base, digits = 10, text
+    alphabet = "0123456789abcdef"[:base if base <= 10 else 16]
+    if digits == "" or any(ch.lower() not in alphabet for ch in digits):
+        return None
+    value = int(digits, base)
+    return value if 0 <= value <= 0xFFFFFFFF else None
+
+
+def legacy_addr(text):
+    """BSD/XP inet_addr, including the leading-space quirk (returns 0)."""
+    if text.startswith(" "):
+        return 0
+    parts = text.split(".")
+    if not 1 <= len(parts) <= 4:
+        return None
+    values = []
+    for part in parts:
+        value = legacy_part(part)
+        if value is None:
+            return None
+        values.append(value)
+    for value in values[:-1]:
+        if value > 255:
+            return None
+    if len(values) == 2:
+        if values[1] > 0xFFFFFF: return None
+        return (values[0] << 24) | values[1]
+    if len(values) == 3:
+        if values[2] > 0xFFFF: return None
+        return (values[0] << 24) | (values[1] << 16) | values[2]
+    if len(values) == 4:
+        if values[3] > 255: return None
+        return (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | values[3]
+    return values[0]
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("usage: ws_ref.py <cases.txt>")
@@ -25,12 +69,13 @@ def main():
             command, sep, argument = line.partition("\t")
             if not sep:
                 continue
-            if command in ("pton", "addr"):
+            if command == "addr":
+                legacy = legacy_addr(argument)
+                value = "ffffffff" if legacy is None else f"{legacy:08x}"
+                print(f"addr\t{argument}\t{value}")
+            elif command == "pton":
                 address = parse(argument)
-                if command == "addr":
-                    value = "ffffffff" if address is None else f"{int(address):08x}"
-                    print(f"addr\t{argument}\t{value}")
-                elif address is None:
+                if address is None:
                     print(f"pton\t{argument}\t0")
                 else:
                     print(f"pton\t{argument}\t1\t{int(address):08x}")

@@ -188,7 +188,7 @@ int anem_socket_listen(int id, unsigned backlog)
         return fail(ANEM_WSAENOTSOCK);
     }
     if (slot->type != ANEM_SOCK_STREAM) {
-        return fail(ANEM_WSAEINVAL);
+        return fail(ANEM_WSAEOPNOTSUPP);
     }
     if (slot->state != ANEM_STATE_BOUND && slot->state != ANEM_STATE_LISTENING) {
         return fail(ANEM_WSAEINVAL);
@@ -362,7 +362,8 @@ void anem_socket_event_refused(int id)
     if (slot != NULL && slot->state == ANEM_STATE_CONNECTING) {
         slot->state = ANEM_STATE_BOUND;
         slot->error = ANEM_WSAECONNREFUSED;
-        slot->writable = 1;
+        /* XP does not mark a refused connect write-ready; SO_ERROR is the
+         * only report (P4.6 certificate). */
     }
 }
 
@@ -486,7 +487,7 @@ int anem_socket_select(const int *read_ids, unsigned read_count,
     for (unsigned i = 0; i < write_count; i++) {
         const SocketSlot *slot = slot_of(write_ids[i]);
         write_ready[i] = (slot->writable != 0 || slot->reset != 0
-                          || slot->error != 0 || slot->shut_write != 0) ? 1 : 0;
+                          || slot->shut_write != 0) ? 1 : 0;
         ready += write_ready[i];
     }
     return ready;
@@ -541,7 +542,6 @@ void anem_socket_event_reset(int id)
     } else if (slot->state == ANEM_STATE_CONNECTING) {
         slot->state = ANEM_STATE_BOUND;
         slot->error = ANEM_WSAECONNRESET;
-        slot->writable = 1;
     }
 }
 

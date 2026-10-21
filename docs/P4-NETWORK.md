@@ -46,9 +46,13 @@ leading zeros, value ≤ 255 — the POSIX `inet_pton` form. `INADDR_NONE` remai
 ambiguous with `255.255.255.255`, as it is on Windows.
 
 The corpus gate (`anemos/winsock/run.sh`, 6 checks) compares 586 cases
-against Python's `ipaddress`, including malformed, whitespace and leading-zero
-forms, and refuses a deliberately wrong renderer. `addr.c` is 442 bytes of
-`.text`.
+against a Python oracle (strict `ipaddress` for `inet_pton`, a BSD/XP legacy
+model for `inet_addr`), including malformed, whitespace and leading-zero
+forms, and refuses a deliberately wrong renderer. `addr.c` is 843 bytes of
+`.text`. The legacy parser exists because the P4.6 certificate showed XP's
+`inet_addr`/`WSAStringToAddress` accept 1-4 parts, octal and hex, and return 0
+for a leading space; `inet_pton` itself stays strict because XP has no such
+API.
 
 `in_addr.S_addr` is Winsock's `u_long`: its **memory bytes** are the address
 octets in order, so on a little-endian host the numeric value is byte-swapped
@@ -117,10 +121,11 @@ Review-driven semantics now in the core:
 
 - a listening socket is read-ready while a connection is queued;
 - a refused or reset connect leaves the socket `bound` with a pending error
-  (`WSAECONNREFUSED` / `WSAECONNRESET`) that `select` surfaces as write-ready
-  and `anem_socket_error` reports, like `SO_ERROR`;
-- readiness means "will not block", so shutdown directions and pending errors
-  make the corresponding set ready; a repeated shutdown is `WSAENOTCONN`;
+  (`WSAECONNREFUSED` / `WSAECONNRESET`) reported by `anem_socket_error`; the
+  XP certificate says such a socket is **not** write-ready, so `select` does
+  not set it (the earlier review assumed otherwise; XP won);
+- readiness means "will not block": shutdown directions make the
+  corresponding set ready; a repeated shutdown is `WSAENOTCONN`;
 - a reset clears buffered bytes, and `readable` is ignored after EOF;
 - TCP and UDP port namespaces are separate;
 - both parsers are strict and bounded, overlong trace lines are rejected
@@ -220,19 +225,23 @@ and proves the comparator can fail.
 
 `host_probe.c` is the host twin: it answers the same 47 case names with our
 socket core and loopback, and `conformance_run.sh` requires the case-name sets
-to match. Running the comparator against a Wine smoke certificate (Wine is
-**not** XP) already leaves nine open questions, recorded rather than "fixed":
+to match. The XP capture is stored at `anemos/winsock/xp/winsock-cert.txt`, and
+the comparator now reports **IDENTICAL 47 cases**.
+
+XP settled every open question, and XP won each time:
 
 ```
-inet_addr.short / .hex / .leadzero   XP-style legacy parsing accepts them; we are strict
-wsastring.short/.leadzero/.hex.rc    same question through WSAStringToAddress
-listen.dgram.err                     Wine says 10045 (WSAEOPNOTSUPP), we return 10022
-send.unconnected.err                 Wine says 10054, we return 10057 (WSAENOTCONN)
-ready.nonblock.write_ready           Wine says 0 after a refused connect, we say 1
+inet_addr / WSAStringToAddress   legacy form: 1-4 parts, decimal/octal/hex,
+                                 and a leading space returns 0, not NONE
+listen on a datagram socket      WSAEOPNOTSUPP (10045), not WSAEINVAL
+send on an unconnected socket    WSAENOTCONN (10057) — our value was already right
+refused non-blocking connect     select does NOT mark it write-ready
 ```
 
-These are exactly what the XP certificate will settle; no value is changed on
-Wine's authority. The only remaining P4.6 step is the XP run itself.
+The fixes are in `addr.c` (a separate legacy parser; `inet_pton` stays strict),
+`socket_core.c` (listen error, write-readiness) and the Python model. This is
+the P4.6 conformance result for the observed surface: the certificate is the
+oracle, and the host twin reproduces it case for case.
 
 ## Blocked: P4.6
 

@@ -56,15 +56,15 @@ static void parse_cases(void)
     report_s("inet_ntoa.loopback", anem_inet_ntoa(lo));
     report_s("inet_ntoa.zero", anem_inet_ntoa(0));
 
-    report_u("wsastring.plain.rc",
-             anem_inet_pton4("127.0.0.1", &addr) == 1 ? 0u : 1u);
+    addr = anem_inet_addr("127.0.0.1");
+    report_u("wsastring.plain.rc", addr != ANEM_INADDR_NONE ? 0u : 1u);
     report_u("wsastring.plain.value", (unsigned long)addr);
     report_u("wsastring.short.rc",
-             anem_inet_pton4("1.2.3", &addr) == 1 ? 0u : 1u);
+             anem_inet_addr("1.2.3") != ANEM_INADDR_NONE ? 0u : 1u);
     report_u("wsastring.leadzero.rc",
-             anem_inet_pton4("1.2.3.04", &addr) == 1 ? 0u : 1u);
+             anem_inet_addr("1.2.3.04") != ANEM_INADDR_NONE ? 0u : 1u);
     report_u("wsastring.hex.rc",
-             anem_inet_pton4("0x7f.0.0.1", &addr) == 1 ? 0u : 1u);
+             anem_inet_addr("0x7f.0.0.1") != ANEM_INADDR_NONE ? 0u : 1u);
     (void)anem_inet_pton4("10.0.0.1", &addr);
     report_u("wsaddrtostring.ok",
              anem_inet_ntop4(addr, text, sizeof text) != NULL ? 1u : 0u);

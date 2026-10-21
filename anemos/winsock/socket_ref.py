@@ -126,7 +126,7 @@ class Core:
         if slot is None:
             return -WSAENOTSOCK
         if slot.type != "stream":
-            return -WSAEINVAL
+            return -WSAEOPNOTSUPP
         if slot.state not in (BOUND, LISTENING):
             return -WSAEINVAL
         slot.backlog = backlog if backlog else 1
@@ -220,7 +220,6 @@ class Core:
         if slot is not None and slot.state == CONNECTING:
             slot.state = BOUND
             slot.error = WSAECONNREFUSED
-            slot.writable = True
 
     def op_send(self, ident, length):
         slot = self.slot(ident)
@@ -280,8 +279,7 @@ class Core:
             ready += is_ready
         for ident in write_ids:
             slot = self.slot(ident)
-            is_ready = (slot.writable or slot.reset or slot.error
-                        or slot.shut_write)
+            is_ready = slot.writable or slot.reset or slot.shut_write
             write_ready.append(is_ready)
             ready += is_ready
         return ready, read_ready, write_ready
@@ -314,7 +312,6 @@ class Core:
         elif slot.state == CONNECTING:
             slot.state = BOUND
             slot.error = WSAECONNRESET
-            slot.writable = True
 
     def event_incoming(self, ident):
         slot = self.slot(ident)

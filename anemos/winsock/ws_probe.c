@@ -72,7 +72,7 @@ static int selftest(void)
 
     check(anem_ntohl(anem_inet_addr("10.0.0.1")) == UINT32_C(0x0a000001),
           "inet_addr returns Winsock's memory order");
-    check(anem_inet_addr("10.0.0") == ANEM_INADDR_NONE,
+    check(anem_inet_addr("1.2.3.4.5") == ANEM_INADDR_NONE,
           "inet_addr returns INADDR_NONE on malformed input");
     check(anem_inet_addr("255.255.255.255") == ANEM_INADDR_NONE,
           "inet_addr is ambiguous for the broadcast address");
