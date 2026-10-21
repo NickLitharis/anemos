@@ -97,12 +97,26 @@ class NTFS:
         return self._runs(a[struct.unpack('<H', a[32:34])[0]:])
 
     def record(self, idx):
-        """Read MFT record idx, following $MFT's run list."""
+        """Read MFT record idx, following $MFT's run list.
+
+        NTFS protects each record sector with an update-sequence array: the
+        last two bytes of every sector hold a sequence number and the real
+        bytes live in the USA. Without applying the fixup, a resident file
+        whose attribute crosses a sector boundary reads back with two USN
+        bytes in its data (found via a 593-byte certificate).
+        """
         off = idx * 2  # sectors into the MFT
         for lcn, ncl in self.mft_runs:
             nsec = ncl * self.cluster // 512
             if off < nsec:
-                return self.v.read_sectors(self.cl2lba(lcn) + off, 2)
+                rec = bytearray(self.v.read_sectors(self.cl2lba(lcn) + off, 2))
+                usa_off = struct.unpack('<H', rec[4:6])[0]
+                usa_cnt = struct.unpack('<H', rec[6:8])[0]
+                for i in range(1, usa_cnt):
+                    end = i * self.bps
+                    if end <= len(rec) and usa_off + i * 2 + 2 <= len(rec):
+                        rec[end-2:end] = rec[usa_off+i*2:usa_off+i*2+2]
+                return bytes(rec)
             off -= nsec
         raise SystemExit('record %d beyond $MFT' % idx)
 

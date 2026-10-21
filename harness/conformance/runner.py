@@ -653,7 +653,7 @@ def cmd_extract(args: argparse.Namespace) -> int:
                 # then cuts power and risks losing flushed files.
                 log("  asking the guest to shut down")
                 for _ in range(3):
-                    if run_dialog("shutdown -s -t 0", pause=1.0):
+                    if run_dialog("shutdown -s -f -t 0", pause=1.0):
                         break
                     time.sleep(1.0)
         log("shutting down")
