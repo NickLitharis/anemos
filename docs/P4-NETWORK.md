@@ -34,7 +34,7 @@ the bottom layer.
 | P4.2 | Socket core: `socket`/`bind`/`connect`/`listen`/`accept`/`shutdown`/`close` state machine over an injectable transport — **done** | differential against an independent model, no sockets in the tests |
 | P4.3 | Readiness/data path: `select` over read/write sets, non-blocking send/recv, EOF/reset | differential against the same model — **done (no blocking wait; the caller polls)** |
 | P4.4 | The socket path for the DNS resolver, closing P2's deferred gap — **done** | resolver differential over the socket core |
-| P4.5 | Transport provider: TDI/WSK or the adopted stack, decided by measurement | throughput not worse than XP |
+| P4.5 | Transport seam + loopback reference transport (**done**); the real provider (TDI/WSK or the adopted stack) is still the open decision | loopback scenarios; the real gate is throughput not worse than XP |
 | P4.6 | Winsock conformance probe in XP | observed behaviour identical to XP's own Winsock |
 
 ## P4.1 — the address layer (done)
@@ -162,12 +162,38 @@ checked for its exact size, and asserted to reach ok, dns and timeout. Both
 processes run under a timeout and their exit status is checked. `resolver.c`
 is 914 bytes of `.text`; P2's own gate still reports 24/24.
 
-## Blocked: P4.5 and P4.6
+## P4.5 — the transport seam and the loopback (done)
 
-- **P4.5 — transport provider.** The surface is measured; the stack behind it
-  is not chosen. A lwIP-style rewrite versus ReactOS behind TDI/WSK is a
-  licence-and-effort decision, not something a slice can settle by writing
-  more glue. Its gate ("throughput not worse than XP") also needs the guest.
+`anemos/winsock/loopback.*` is the reference implementation of the seam below
+the socket core. It consumes the core's request queue — `open`, `bind`,
+`listen`, `connect`, `accept`, `send` (now carrying the caller's bytes),
+`shutdown`, `close`, `refuse` — and injects the events a real transport would:
+`connected`, `refused`, `incoming`, `readable(bytes)`, `writable`, `eof`,
+`reset`. Sockets are wired to each other in one process with bounded receive
+queues, so the full user-space path runs without a kernel, a NIC or a stack.
+
+`transport_probe.c` then exercises it end to end: TCP connect/accept and data
+in both directions, EOF after `shutdown(SD_SEND)` and after close, refusal of
+an unbound port (asserting `WSAECONNREFUSED` and the return to `bound`), a
+one-deep backlog whose second connection is reset, and UDP in both directions.
+The gate (`anemos/winsock/transport_run.sh`, 7 checks) requires all 27
+assertions and the final banner, rejects a build that drops one byte in
+transit, and keeps `loopback.c` (1061 B) and `socket_core.c` (2318 B) inside
+the 8 KB budget.
+
+**Still open:** the bottom half. A lwIP-style rewrite versus ReactOS behind
+TDI/WSK is a licence-and-effort decision, not something more glue can settle;
+its gate ("throughput not worse than XP") also needs the guest.
+
+## Blocked: P4.6
+
+- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
+  remounted read-only after ext4 errors, so the VMDKs cannot be patched or
+  booted. Nothing in P4.1-P4.5 claims XP behaviour: XP's legacy parser quirks,
+  `listen` on datagram sockets and the exact readiness edges are explicitly
+  deferred to this probe.
+- **P3's guest gates** (RAND hardening for the `rsaenh` slot, the SPI run and
+  the CryptoAPI path in XP) remain open for the same reason.
 - **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
   remounted read-only after ext4 errors, so the VMDKs cannot be patched or
   booted. Nothing in P4.1-P4.4 claims XP behaviour: XP's legacy parser quirks,
@@ -185,5 +211,6 @@ no XP conformance claim and no transport underneath.
 ```sh
 anemos/winsock/run.sh          # P4.1 address layer: 6/6
 anemos/winsock/socket_run.sh   # P4.2/4.3 socket core: 7/7
-anemos/dns/resolver_run.sh     # P4.4 resolver: 5/5
+anemos/winsock/transport_run.sh # P4.5 seam + loopback: 7/7
+anemos/dns/resolver_run.sh      # P4.4 resolver: 8/8
 ```

@@ -59,7 +59,8 @@ typedef enum AnemSockRequestKind {
     ANEM_REQUEST_SHUTDOWN,
     ANEM_REQUEST_CLOSE,
     ANEM_REQUEST_REFUSE,
-    ANEM_REQUEST_SEND
+    ANEM_REQUEST_SEND,
+    ANEM_REQUEST_ACCEPT
 } AnemSockRequestKind;
 
 typedef struct AnemSockRequest {
@@ -68,6 +69,9 @@ typedef struct AnemSockRequest {
     uint32_t addr;
     uint16_t port;
     unsigned value;
+    /* Valid only for ANEM_REQUEST_SEND, and only until the transport drains
+     * the request: the caller keeps the bytes alive. */
+    const void *data;
 } AnemSockRequest;
 
 /* All functions return 0 on success and a negated WSA error on failure, except
@@ -86,7 +90,7 @@ int anem_socket_close(int id);
  * `recv` consumes up to `length` of the bytes the transport announced and
  * returns 0 with `*received` set (0 means graceful EOF); it does not invent
  * a buffer. */
-int anem_socket_send(int id, unsigned length);
+int anem_socket_send(int id, const void *data, unsigned length);
 int anem_socket_recv(int id, unsigned length, unsigned *received);
 
 /* Readiness, Winsock `select` semantics without the wait: the caller polls.

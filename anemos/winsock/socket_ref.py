@@ -177,6 +177,7 @@ class Core:
         slot.state = CONNECTED
         slot.writable = True
         self.slots[index] = slot
+        self.emit("accept", new_id)
         return new_id
 
     def op_shutdown(self, ident, how):

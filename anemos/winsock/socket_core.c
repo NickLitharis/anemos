@@ -56,12 +56,12 @@ static SocketSlot *free_slot(void)
     return NULL;
 }
 
-static void emit(AnemSockRequestKind kind, int id, uint32_t addr, uint16_t port,
-                 unsigned value)
+static AnemSockRequest *emit(AnemSockRequestKind kind, int id, uint32_t addr,
+                             uint16_t port, unsigned value)
 {
     if (g_request_count == sizeof g_requests / sizeof g_requests[0]) {
         g_request_overflow = 1;
-        return;
+        return NULL;
     }
     AnemSockRequest *request = &g_requests[g_request_tail];
     request->kind = kind;
@@ -69,8 +69,10 @@ static void emit(AnemSockRequestKind kind, int id, uint32_t addr, uint16_t port,
     request->addr = addr;
     request->port = port;
     request->value = value;
+    request->data = NULL;
     g_request_tail = (g_request_tail + 1u) % (unsigned)(sizeof g_requests / sizeof g_requests[0]);
     g_request_count++;
+    return request;
 }
 
 /* Next ephemeral port that is not already bound. Returns 0 when the range is
@@ -277,6 +279,7 @@ int anem_socket_accept(int id)
     slot->error = 0;
     slot->shut_read = 0;
     slot->shut_write = 0;
+    emit(ANEM_REQUEST_ACCEPT, new_id, 0, 0, (unsigned)id);
     return new_id;
 }
 
@@ -377,7 +380,7 @@ void anem_socket_event_incoming(int id)
     }
 }
 
-int anem_socket_send(int id, unsigned length)
+int anem_socket_send(int id, const void *data, unsigned length)
 {
     SocketSlot *slot = slot_of(id);
 
@@ -396,13 +399,22 @@ int anem_socket_send(int id, unsigned length)
     if (length == 0u) {
         return 0;                        /* nothing to hand to the transport */
     }
+    if (data == NULL) {
+        return fail(ANEM_WSAEINVAL);
+    }
     if (slot->writable == 0) {
         return fail(ANEM_WSAEWOULDBLOCK);
     }
     /* One accepted send clears writability; the transport's writable event
      * restores it when the queue drains. */
     slot->writable = 0;
-    emit(ANEM_REQUEST_SEND, id, 0, 0, length);
+    {
+        AnemSockRequest *request = emit(ANEM_REQUEST_SEND, id, 0, 0, length);
+
+        if (request != NULL) {
+            request->data = data;
+        }
+    }
     return 0;
 }
 
