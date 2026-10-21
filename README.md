@@ -143,7 +143,10 @@ not published here.
   last. Started with the host-testable Winsock address layer (P4.1); the
   stack architecture — lwIP-style rewrite or ReactOS behind TDI/WSK — is the
   next open decision (`docs/P4-NETWORK.md`).
-- **P5 — the kernel proper.** Memory manager, object manager, scheduler, I/O:
+- **P5 — the kernel proper, with one exception.** The network stack now needs a
+  kernel driver and is in scope (`docs/P5-NETWORK-KERNEL.md`); its first
+  loadable driver passed in XP on 2026-10-22. Memory manager,
+  object manager, scheduler, I/O:
   ~60M lines with no external specification and no way to differential-test
   bit-identical internal state. Out of scope. The honest options are adopting
   ReactOS's clean-room kernel (GPL/LGPL, which changes this project's licence)

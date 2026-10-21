@@ -1,0 +1,78 @@
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:2003:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 2003 | #include <pshpack4.h>
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack4.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,4)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:2008:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 2008 | #include <poppack.h>
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:2884:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 2884 | #include <pshpack4.h>
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack4.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,4)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:2972:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 2972 | #include <poppack.h>
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:3119:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 3119 | #include <pshpack1.h>
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack1.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,1)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:3161:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 3161 | #include <poppack.h>
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:4460:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 4460 | #include <pshpack1.h>
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack1.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,1)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:4551:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 4551 | #include <poppack.h>
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:6445:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 6445 | #include <pshpack4.h>
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack4.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,4)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+In file included from /home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:38:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/wdm.h:6663:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 6663 | #include <poppack.h>
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:3039:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 3039 | #include "pshpack4.h"
+      |          ^
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/i686-w64-mingw32/include/pshpack4.h:7:9: note: previous '#pragma pack' directive that modifies alignment is here
+    7 | #pragma pack(push,4)
+      |         ^
+In file included from /home/marocos/anemos/anemos/net/kernel/anemosnet.c:16:
+/home/marocos/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin/../i686-w64-mingw32/include/ddk/ntddk.h:3067:10: warning: the current #pragma pack alignment value is modified in the included file [-Wpragma-pack]
+ 3067 | #include "poppack.h"
+      |          ^
+note: previous '#pragma pack' directive that modifies alignment is here
+12 warnings generated.
+ld.lld: warning: /align specified without /driver; image may not run
+built /home/marocos/anemos/anemos/net/kernel/out/anemosnet.sys
+built /home/marocos/anemos/anemos/net/kernel/out/m1_test.exe

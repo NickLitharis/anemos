@@ -1,0 +1,8 @@
+LIBRARY ntoskrnl.exe
+EXPORTS
+    IoCreateDevice@28
+    IoDeleteDevice@4
+    IoCreateSymbolicLink@8
+    IoDeleteSymbolicLink@4
+    MmGetSystemRoutineAddress@4
+    RtlInitUnicodeString@8
