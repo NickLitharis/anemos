@@ -105,9 +105,38 @@ XP-clean import table, and it is explicit in the code.
   Testing that path requires a documented harness change; the SPI is proved
   directly here.
 
+## P3.4 — the same checks inside XP
+
+`anemos/csp/xp_run.sh` carries the host artifact into the guest the same way the
+STATUS→DOS probe travels: host-side victim swap, boot, Run box, host-side
+collection.
+
+- **Two victims**, because `ntfspatch.py` can only overwrite an existing file:
+  the harness (~218 KB) over `mspaint.exe`, and the provider (~3.6 MB) over
+  `\windows\repair\software`. Both are backed up before the swap and restored on
+  every exit path. Candidates are filtered by `ntfspatch.py stat` for size and
+  for NTFS compression — a raw write into a compressed file reads back as
+  garbage, so such a file must never be chosen.
+- **No boot-critical victim.** The provider does not go over `shell32.dll` or
+  `oembios.bin` while a safe 8 MB file exists; the recovery-hive copy in
+  `\windows\repair` is not read during a normal boot.
+- **The harness writes a result file.** A second argument makes `spi_test`
+  mirror every PASS/FAIL line to `\conftest\spi.log`; in guest mode it also
+  holds its console for 8 s so the runner's pixel probe can observe the launch
+  before the process exits.
+- **The gate is the diff.** The runner types
+  `mspaint.exe \windows\repair\software \conftest\spi.log` into the Run box
+  (no `:` or `%` travels), waits for the console to close, powers off, and
+  extracts the log. The guest PASS/FAIL lines must be identical to the host
+  run's, and the guest must end with `all CSP SPI checks pass`.
+
+Status: the harness is prepared and its host half is green; the guest run is
+recorded only when it actually passes.
+
 ## Reproducing
 
 ```sh
 anemos/crypto/build-openssl.sh   # once, if the engine is not built
 anemos/csp/run.sh                # 11/11, no VM
+anemos/csp/xp_run.sh             # P3.4: the same checks inside XP
 ```

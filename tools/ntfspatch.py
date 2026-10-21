@@ -3,8 +3,11 @@
 import struct, sys
 
 class Vmdk:
-    def __init__(self, path):
-        self.f = open(path, 'r+b')
+    def __init__(self, path, writable=False):
+        """Open read-only unless `put` needs to write. A read-only image (a
+        pristine oracle mounted ro, or a host filesystem that remounted ro
+        after errors) can still be listed, stat'ed and extracted."""
+        self.f = open(path, 'r+b' if writable else 'rb')
         hdr = self.f.read(512)
         if hdr[:4] != b'KDMV':
             raise SystemExit('not monolithicSparse')
@@ -190,6 +193,24 @@ class NTFS:
         if a is None: raise SystemExit('no $DATA')
         return self.data(a)
 
+    def file_stat(self, path):
+        """Return (real size, allocated size, attribute flags) for a file.
+
+        Flags expose FILE_ATTRIBUTE_COMPRESSED (0x0001): a raw overwrite of a
+        compressed file would be stored as compressed data and read back as
+        garbage, so callers choosing a victim must reject it.
+        """
+        rec = self.record(self.lookup(path))
+        a = self._attr(rec, 0x80)
+        if a is None: raise SystemExit('no $DATA')
+        flags = struct.unpack('<H', a[12:14])[0]
+        if a[8] == 0:
+            vl = struct.unpack('<I', a[16:20])[0]
+            return vl, vl, flags
+        alloc = struct.unpack('<Q', a[40:48])[0]
+        real = struct.unpack('<Q', a[48:56])[0]
+        return real, alloc, flags
+
     def write_file(self, path, data):
         idx = self.lookup(path)
         rec = self.record(idx)
@@ -210,18 +231,22 @@ class NTFS:
 def _main():
     import os
     if len(sys.argv) < 3:
-        print(__doc__ or 'usage: ntfspatch.py <vmdk> ls|get|put [args]')
+        print(__doc__ or 'usage: ntfspatch.py <vmdk> ls|get|put|stat [args]')
         print('  ls                        list NTFS root')
         print('  get <path> <out>          extract a file')
         print('  put <path> <in>           overwrite a file (must fit allocation)')
+        print('  stat <path>               print real and allocated bytes')
         raise SystemExit(2)
-    v = Vmdk(sys.argv[1])
+    cmd = sys.argv[2]
+    if cmd not in ('ls', 'get', 'put', 'stat'):
+        raise SystemExit('unknown command: ' + cmd)
+    # Only `put` writes; everything else works on a read-only image.
+    v = Vmdk(sys.argv[1], writable=(cmd == 'put'))
     part = int(os.environ.get('PART', '1'))
     mbr = v.read_sectors(0, 1)
     off = 446 + (part - 1) * 16
     lba = struct.unpack('<I', mbr[off + 8:off + 12])[0]
     n = NTFS(v, lba)
-    cmd = sys.argv[2]
     if cmd == 'ls':
         for name, ref in n.listdir(5):
             print('%-30s %d' % (name, ref))
@@ -230,12 +255,13 @@ def _main():
         with open(sys.argv[4], 'wb') as f:
             f.write(data)
         print('extracted %d bytes' % len(data))
+    elif cmd == 'stat':
+        real, alloc, flags = n.file_stat(sys.argv[3])
+        print('size %d alloc %d flags 0x%x' % (real, alloc, flags))
     elif cmd == 'put':
         with open(sys.argv[4], 'rb') as f:
             data = f.read()
         n.write_file(sys.argv[3], data)
-    else:
-        raise SystemExit('unknown command: ' + cmd)
 
 
 if __name__ == '__main__':
