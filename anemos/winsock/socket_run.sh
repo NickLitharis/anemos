@@ -71,7 +71,26 @@ else
     bad "$checked traces match the independent model ($mismatches mismatched)"
 fi
 
-step "3: negative control — a broken accept queue must be rejected"
+step "3: harness robustness"
+python3 -c "print('select\\t' + ','.join(['1'] * 700))" >"$OUT/overlong.txt"
+(cd "$OUT" && wine socket_probe.exe) <"$OUT/overlong.txt" 2>/dev/null \
+    | tr -d '\r' >"$OUT/overlong-got.txt"
+if [ "$(cat "$OUT/overlong-got.txt")" = "? overlong" ]; then
+    ok "an overlong line is rejected, not split"
+else
+    bad "an overlong line is rejected, not split"
+fi
+sed 's/$/\r/' "$TRACES/readiness.txt" >"$OUT/crlf-trace.txt"
+python3 "$HERE/socket_ref.py" "$OUT/crlf-trace.txt" >"$OUT/crlf-want.txt"
+(cd "$OUT" && wine socket_probe.exe) <"$OUT/crlf-trace.txt" 2>/dev/null \
+    | tr -d '\r' >"$OUT/crlf-got.txt"
+if diff -q "$OUT/crlf-want.txt" "$OUT/crlf-got.txt" >/dev/null 2>&1; then
+    ok "a CRLF trace produces the same result"
+else
+    bad "a CRLF trace produces the same result"
+fi
+
+step "4: negative control — a broken accept queue must be rejected"
 if clang --target=i686-w64-mingw32 "${FLAGS[@]}" -DANEM_SOCKET_NEGATIVE \
         -o "$OUT/socket_probe_neg.exe" "${SOURCES[@]}"; then
     ok "negative probe builds"
@@ -95,7 +114,7 @@ else
     bad "negative probe builds"
 fi
 
-step "4: size budget"
+step "5: size budget"
 if clang --target=i686-w64-mingw32 "${FLAGS[@]}" -c \
         -o "$OUT/socket_core.obj" "$HERE/socket_core.c"; then
     text_hex=$(llvm-objdump -h "$OUT/socket_core.obj" \

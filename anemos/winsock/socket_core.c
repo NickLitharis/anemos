@@ -14,6 +14,7 @@ typedef struct SocketSlot {
     int writable;
     int eof;
     int reset;
+    int error;
     int shut_read;
     int shut_write;
 } SocketSlot;
@@ -28,7 +29,7 @@ static unsigned g_request_tail;
 static unsigned g_request_count;
 static int g_request_overflow;
 
-static int port_in_use(uint16_t port);
+static int port_in_use(uint16_t port, AnemSockType type);
 
 static int fail(int error)
 {
@@ -74,13 +75,13 @@ static void emit(AnemSockRequestKind kind, int id, uint32_t addr, uint16_t port,
 
 /* Next ephemeral port that is not already bound. Returns 0 when the range is
  * exhausted; callers turn that into WSAEADDRNOTAVAIL. */
-static int take_ephemeral(uint16_t *out)
+static int take_ephemeral(uint16_t *out, AnemSockType type)
 {
     for (unsigned tries = 0; tries < 16384u; tries++) {
         uint16_t port = (uint16_t)g_next_ephemeral;
 
         g_next_ephemeral = (g_next_ephemeral >= 65535u) ? 49152u : g_next_ephemeral + 1u;
-        if (!port_in_use(port)) {
+        if (!port_in_use(port, type)) {
             *out = port;
             return 1;
         }
@@ -88,7 +89,10 @@ static int take_ephemeral(uint16_t *out)
     return 0;
 }
 
-static int port_in_use(uint16_t port)
+/* Winsock namespaces TCP and UDP ports separately. Address specificity is not
+ * modelled yet: a wildcard bind conflicts with a specific one on the same
+ * protocol, which is the default (no SO_REUSEADDR) behaviour. */
+static int port_in_use(uint16_t port, AnemSockType type)
 {
     if (port == 0u) {
         return 0;
@@ -98,7 +102,7 @@ static int port_in_use(uint16_t port)
         if (slot->state == ANEM_STATE_CLOSED || slot->state == ANEM_STATE_CREATED) {
             continue;
         }
-        if (slot->port == port) {
+        if (slot->port == port && slot->type == type) {
             return 1;
         }
     }
@@ -140,6 +144,7 @@ int anem_socket_socket(AnemSockType type)
     slot->writable = 0;
     slot->eof = 0;
     slot->reset = 0;
+    slot->error = 0;
     slot->shut_read = 0;
     slot->shut_write = 0;
     emit(ANEM_REQUEST_OPEN, id, 0, 0, (unsigned)type);
@@ -160,10 +165,10 @@ int anem_socket_bind(int id, uint32_t addr_net, uint16_t port_host)
         return fail(ANEM_WSAEADDRNOTAVAIL);   /* the broadcast address */
     }
     if (port_host == 0u) {
-        if (!take_ephemeral(&port_host)) {
+        if (!take_ephemeral(&port_host, slot->type)) {
             return fail(ANEM_WSAEADDRNOTAVAIL);
         }
-    } else if (port_in_use(port_host)) {
+    } else if (port_in_use(port_host, slot->type)) {
         return fail(ANEM_WSAEADDRINUSE);
     }
     slot->addr = addr_net;
@@ -211,11 +216,12 @@ int anem_socket_connect(int id, uint32_t addr_net, uint16_t port_host)
     if (slot->state == ANEM_STATE_LISTENING) {
         return fail(ANEM_WSAEINVAL);
     }
+    slot->error = 0;
     if (slot->state == ANEM_STATE_CREATED) {
         /* Winsock binds an unbound socket implicitly on connect. */
         uint16_t local = 0;
 
-        if (!take_ephemeral(&local)) {
+        if (!take_ephemeral(&local, slot->type)) {
             return fail(ANEM_WSAEADDRNOTAVAIL);
         }
         slot->addr = 0;
@@ -268,6 +274,7 @@ int anem_socket_accept(int id)
     slot->writable = 1;                  /* an accepted socket can send */
     slot->eof = 0;
     slot->reset = 0;
+    slot->error = 0;
     slot->shut_read = 0;
     slot->shut_write = 0;
     return new_id;
@@ -285,6 +292,10 @@ int anem_socket_shutdown(int id, unsigned how)
     }
     if (how != ANEM_SD_RECEIVE && how != ANEM_SD_SEND && how != ANEM_SD_BOTH) {
         return fail(ANEM_WSAEINVAL);
+    }
+    if (((how == ANEM_SD_RECEIVE || how == ANEM_SD_BOTH) && slot->shut_read != 0)
+        || ((how == ANEM_SD_SEND || how == ANEM_SD_BOTH) && slot->shut_write != 0)) {
+        return fail(ANEM_WSAENOTCONN);
     }
     if (how == ANEM_SD_RECEIVE || how == ANEM_SD_BOTH) {
         slot->shut_read = 1;
@@ -337,6 +348,7 @@ void anem_socket_event_connected(int id)
     if (slot != NULL && slot->state == ANEM_STATE_CONNECTING) {
         slot->state = ANEM_STATE_CONNECTED;
         slot->writable = 1;
+        slot->error = 0;
     }
 }
 
@@ -346,6 +358,8 @@ void anem_socket_event_refused(int id)
 
     if (slot != NULL && slot->state == ANEM_STATE_CONNECTING) {
         slot->state = ANEM_STATE_BOUND;
+        slot->error = ANEM_WSAECONNREFUSED;
+        slot->writable = 1;
     }
 }
 
@@ -450,15 +464,17 @@ int anem_socket_select(const int *read_ids, unsigned read_count,
     }
     for (unsigned i = 0; i < read_count; i++) {
         const SocketSlot *slot = slot_of(read_ids[i]);
-
-        read_ready[i] = (slot->rx_available > 0u || slot->eof != 0
-                         || slot->reset != 0) ? 1 : 0;
+        /* Readiness means "will not block": a queued connection, buffered
+         * bytes, EOF, a reset, or a shutdown that makes recv fail at once. */
+        read_ready[i] = ((slot->state == ANEM_STATE_LISTENING && slot->pending > 0u)
+                         || slot->rx_available > 0u || slot->eof != 0
+                         || slot->reset != 0 || slot->shut_read != 0) ? 1 : 0;
         ready += read_ready[i];
     }
     for (unsigned i = 0; i < write_count; i++) {
         const SocketSlot *slot = slot_of(write_ids[i]);
-
-        write_ready[i] = (slot->writable != 0 || slot->reset != 0) ? 1 : 0;
+        write_ready[i] = (slot->writable != 0 || slot->reset != 0
+                          || slot->error != 0 || slot->shut_write != 0) ? 1 : 0;
         ready += write_ready[i];
     }
     return ready;
@@ -468,7 +484,8 @@ void anem_socket_event_readable(int id, unsigned bytes)
 {
     SocketSlot *slot = slot_of(id);
 
-    if (slot == NULL || slot->state != ANEM_STATE_CONNECTED || slot->reset != 0) {
+    if (slot == NULL || slot->state != ANEM_STATE_CONNECTED || slot->reset != 0
+        || slot->eof != 0) {
         return;
     }
     if (slot->shut_read == 0) {
@@ -503,9 +520,24 @@ void anem_socket_event_reset(int id)
 {
     SocketSlot *slot = slot_of(id);
 
-    if (slot != NULL && slot->state == ANEM_STATE_CONNECTED) {
-        slot->reset = 1;
+    if (slot == NULL) {
+        return;
     }
+    if (slot->state == ANEM_STATE_CONNECTED) {
+        slot->reset = 1;
+        slot->rx_available = 0;          /* a reset discards buffered bytes */
+    } else if (slot->state == ANEM_STATE_CONNECTING) {
+        slot->state = ANEM_STATE_BOUND;
+        slot->error = ANEM_WSAECONNRESET;
+        slot->writable = 1;
+    }
+}
+
+int anem_socket_error(int id)
+{
+    const SocketSlot *slot = slot_of(id);
+
+    return slot == NULL ? fail(ANEM_WSAENOTSOCK) : slot->error;
 }
 
 int anem_socket_request_overflow(void)

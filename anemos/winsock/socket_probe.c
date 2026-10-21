@@ -95,32 +95,35 @@ static unsigned parse_unsigned(const char *text, unsigned *out)
 
 /* Comma-separated ids, strict decimal. Returns the number parsed; a malformed
  * list stops at the bad field, which the caller treats as an id error. */
-static unsigned parse_id_list(const char *text, int *ids, unsigned max)
+static int parse_id_list(const char *text, int *ids, unsigned max)
 {
-    unsigned count = 0;
+    int count = 0;
     const char *p = text;
 
     if (*p == '\0') {
         return 0;
     }
-    while (*p != '\0' && count < max) {
+    while (*p != '\0') {
         int value = 0;
 
-        if (*p < '0' || *p > '9') {
-            return 0;
+        if (count >= (int)max || *p < '0' || *p > '9') {
+            return -1;
         }
         while (*p >= '0' && *p <= '9') {
             value = value * 10 + (*p - '0');
+            if (value > 1000000) {
+                return -1;
+            }
             p++;
         }
         ids[count++] = value;
         if (*p == ',') {
             p++;
             if (*p == '\0') {
-                return 0;
+                return -1;
             }
         } else if (*p != '\0') {
-            return 0;
+            return -1;
         }
     }
     return count;
@@ -152,7 +155,7 @@ static AnemSockType parse_type(const char *text, int *valid)
 
 int main(void)
 {
-    char line[256];
+    char line[1024];
 
     anem_socket_reset();
     while (fgets(line, sizeof line, stdin) != NULL) {
@@ -162,6 +165,13 @@ int main(void)
         size_t len = strlen(line);
         int valid = 1;
 
+        if (len == sizeof line - 1u && line[len - 1] != '\n') {
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF) {
+            }
+            printf("? overlong\n");
+            continue;
+        }
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
             line[--len] = '\0';
         }
@@ -255,22 +265,30 @@ int main(void)
         } else if (strcmp(fields[0], "reset") == 0 && count >= 2) {
             anem_socket_event_reset(parse_id(fields[1]));
             printf("reset %s\n", fields[1]);
+        } else if (strcmp(fields[0], "error") == 0 && count >= 2) {
+            printf("error %s %d\n", fields[1], anem_socket_error(parse_id(fields[1])));
         } else if (strcmp(fields[0], "select") == 0 && count >= 2) {
             int read_ids[ANEM_SOCKET_MAX];
             int write_ids[ANEM_SOCKET_MAX];
             int read_ready[ANEM_SOCKET_MAX];
             int write_ready[ANEM_SOCKET_MAX];
-            unsigned nread = parse_id_list(fields[1], read_ids, ANEM_SOCKET_MAX);
-            unsigned nwrite = (count >= 3)
+            int nread = parse_id_list(fields[1], read_ids, ANEM_SOCKET_MAX);
+            int nwrite = (count >= 3)
                 ? parse_id_list(fields[2], write_ids, ANEM_SOCKET_MAX) : 0;
-            int rc = anem_socket_select(read_ids, nread, write_ids, nwrite,
+            int rc;
+            if (nread < 0 || nwrite < 0) {
+                rc = -ANEM_WSAEINVAL;
+            } else {
+                rc = anem_socket_select(read_ids, (unsigned)nread,
+                                        write_ids, (unsigned)nwrite,
                                         read_ready, write_ready);
+            }
             printf("select %d", rc);
             if (rc >= 0) {
                 printf(" ");
-                print_bits(read_ready, nread);
+                print_bits(read_ready, (unsigned)nread);
                 printf(" ");
-                print_bits(write_ready, nwrite);
+                print_bits(write_ready, (unsigned)nwrite);
             }
             printf("\n");
         } else {
