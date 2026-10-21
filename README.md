@@ -43,7 +43,7 @@ growing set of subsystems that already pass it.
 | **P3.3 — RSA keys + sign/verify** | ✅ 1024-bit, PUBLIC/PRIVATEKEYBLOB, PKCS#1 v1.5 | `docs/P3-CSP-SPI.md` |
 | **P3.5 — CryptoAPI plumbing** | ✅ 7/7 under Wine; XP still verifies the image signature | `docs/P3-CSP-SPI.md` |
 | P3.4 — XP guest run | ⏳ harness ready, awaiting a writable VM disk | `docs/P3-CSP-SPI.md` |
-| P4 — network stack | ❌ not started | — |
+| **P4 — network stack** | 🔄 started: Winsock address layer (P4.1) | `docs/P4-NETWORK.md` |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
 
 **P2 is complete.** The DNS and DHCP codecs, their clients, and a deterministic
@@ -137,7 +137,9 @@ not published here.
   including the little-endian signature convention; the XP guest run remains,
   and stock XP still verifies the provider image signature.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
-  last.
+  last. Started with the host-testable Winsock address layer (P4.1); the
+  stack architecture — lwIP-style rewrite or ReactOS behind TDI/WSK — is the
+  next open decision (`docs/P4-NETWORK.md`).
 - **P5 — the kernel proper.** Memory manager, object manager, scheduler, I/O:
   ~60M lines with no external specification and no way to differential-test
   bit-identical internal state. Out of scope. The honest options are adopting
