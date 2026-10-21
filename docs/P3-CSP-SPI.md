@@ -20,7 +20,8 @@ API specification, and the platform types come from the SDK headers.
 | Keys | `CPGenKey`, `CPDeriveKey`, `CPImportKey`, `CPExportKey`, `CPDestroyKey`, `CPDuplicateKey`, `CPGetKeyParam`, `CPSetKeyParam` | AES-128/192/256; `PLAINTEXTKEYBLOB`; CBC/ECB; PKCS#5 or zero padding; `KP_ALGID`, `KP_KEYLEN`, `KP_BLOCKLEN`, `KP_MODE`, `KP_PADDING`, `KP_IV`; export only when `CRYPT_EXPORTABLE` |
 | Cipher | `CPEncrypt`, `CPDecrypt` | multi-call streaming with OpenSSL's block buffering; one-shot is the final call; PKCS#5 or zero padding; per-key stream state |
 | Hash session key | `CPHashSessionKey` | feeds the key bytes into an existing hash |
-| Asymmetric | `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | explicit `NTE_NOT_SUPPORTED` stubs (P3.3) |
+| RSA | `CPGenKey` (`CALG_RSA_SIGN`/`CALG_RSA_KEYX`), `CPGetUserKey`, `CPSignHash`, `CPVerifySignature`, `CPImportKey`/`CPExportKey` | 1024-bit key pairs; `PUBLICKEYBLOB`/`PRIVATEKEYBLOB`; PKCS#1 v1.5 sign/verify over MD5/SHA-1/SHA-256; ephemeral user key per spec |
+| Not implemented | raw RSA `CPEncrypt`/`CPDecrypt`, keyset persistence | explicit `NTE_NOT_SUPPORTED`/`NTE_INVALID_PARAMETER` |
 
 The 23 required and 2 optional names from `advapi32`'s loader table are all
 exported **undecorated** (`--kill-at`), so `GetProcAddress` finds them. The
@@ -59,6 +60,10 @@ policy question: it is user-mode, and all state is in fixed tables guarded by a
      SP 800-38A ciphertext, 7+9+16 byte decryption reproduces the plaintext,
      PKCS#5 streaming round-trips, a partial zero-padded final is rejected, and
      a second one-shot after `fFinal` restarts from the configured IV;
+   - RSA: user-key generation and stability, PUBLICKEYBLOB/PRIVATEKEYBLOB
+     export/import (including private round-trip), SHA-256 sign/verify,
+     tampered and wrong-digest rejection, private-handle verification, and
+     refusal to export a non-exportable private key;
    - unsupported asymmetric operations fail with `NTE_NOT_SUPPORTED`, unknown
      algorithms with `NTE_BAD_ALGID`, invalid handles with `NTE_BAD_HASH` or
      `NTE_BAD_KEY`;
@@ -86,9 +91,10 @@ XP-clean import table, and it is explicit in the code.
   final returns failure. PKCS#5 accepts arbitrary lengths.
 - **Key derivation is explicit, not RSA-style.** `CPDeriveKey` takes the first
   `key_len` bytes of the hash value; the hash must be at least that long.
-- **No persistent keysets.** `CPGetUserKey` and keyset management are not
-  implemented.
-- **RSA and signatures remain P3.3.**
+- **No persistent keysets.** `CPGetUserKey` generates an ephemeral key per
+  provider and key spec; it dies with the context.
+- **RSA is 1024-bit and PKCS#1 v1.5 only.** Import accepts up to 16384-bit
+  keys; generation is fixed at 1024. No PSS, no raw RSA encrypt/decrypt.
 - **32 live objects per kind.** A context limit is a real provider limit; a
   caller using more gets `NTE_NO_MEMORY`.
 - **No keyed hashes (HMAC).** `CPCreateHash` with a key handle is refused;

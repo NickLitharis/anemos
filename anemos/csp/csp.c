@@ -13,7 +13,11 @@
 #define ANEM_CSP_BUILD 1
 #include "csp_abi.h"
 
+#include <openssl/bn.h>
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
+#include <openssl/param_build.h>
+#include <openssl/rsa.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +28,9 @@
 #define ANEM_KEY_BASE ((ULONG_PTR)0x00030000u)
 #define ANEM_BLOCK_SIZE 16u
 #define ANEM_MAX_KEY_LEN 32u
+#define ANEM_RSA_BITS 1024
+#define ANEM_RSA1_MAGIC 0x31415352u
+#define ANEM_RSA2_MAGIC 0x32415352u
 
 typedef struct AnemCspContext {
     bool used;
@@ -51,6 +58,9 @@ typedef struct AnemCspKey {
     BYTE key[ANEM_MAX_KEY_LEN];
     EVP_CIPHER_CTX *stream;
     int stream_dir; /* 0 none, 1 encrypt, 2 decrypt */
+    EVP_PKEY *rsa;
+    DWORD key_spec;  /* AT_SIGNATURE / AT_KEYEXCHANGE for user keys */
+    bool user_key;
 } AnemCspKey;
 
 static CRITICAL_SECTION g_lock;
@@ -147,6 +157,8 @@ static void key_reset_stream(AnemCspKey *key)
 static void key_clear(AnemCspKey *key)
 {
     key_reset_stream(key);
+    EVP_PKEY_free(key->rsa);
+    key->rsa = NULL;
     secure_zero(key, sizeof *key);
 }
 
@@ -239,6 +251,379 @@ static bool stream_start(AnemCspKey *key, int dir)
     }
     key->stream_dir = dir;
     return true;
+}
+
+static EVP_PKEY *rsa_generate(void)
+{
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+    EVP_PKEY *pkey = NULL;
+
+    if (ctx == NULL) {
+        return NULL;
+    }
+    if (EVP_PKEY_keygen_init(ctx) != 1
+        || EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, ANEM_RSA_BITS) != 1
+        || EVP_PKEY_keygen(ctx, &pkey) != 1) {
+        EVP_PKEY_free(pkey);
+        pkey = NULL;
+    }
+    EVP_PKEY_CTX_free(ctx);
+    return pkey;
+}
+
+static bool rsa_key_init(AnemCspKey *key, ALG_ID alg, DWORD flags,
+                         EVP_PKEY *pkey)
+{
+    if (pkey == NULL) {
+        return false;
+    }
+    memset(key, 0, sizeof *key);
+    key->used = true;
+    key->alg = alg;
+    key->flags = flags & CRYPT_EXPORTABLE;
+    key->rsa = pkey;
+    key->key_len = (DWORD)(EVP_PKEY_get_bits(pkey) / 8);
+    return true;
+}
+
+static BIGNUM *rsa_get_bn(EVP_PKEY *pkey, const char *name)
+{
+    BIGNUM *bn = NULL;
+
+    return EVP_PKEY_get_bn_param(pkey, name, &bn) == 1 ? bn : NULL;
+}
+
+static bool put_bn_le(BYTE **p, const BIGNUM *bn, DWORD len)
+{
+    if (bn == NULL || BN_bn2lebinpad(bn, *p, (int)len) != (int)len) {
+        return false;
+    }
+    *p += len;
+    return true;
+}
+
+static bool bn_to_dword(const BIGNUM *bn, DWORD *out)
+{
+    BYTE buf[4];
+    DWORD value = 0;
+    int n;
+
+    if (bn == NULL) {
+        return false;
+    }
+    n = BN_num_bytes(bn);
+    if (n <= 0 || n > 4 || BN_bn2bin(bn, buf) != n) {
+        return false;
+    }
+    for (int i = 0; i < n; i++) {
+        value = (value << 8) | (DWORD)buf[i];
+    }
+    *out = value;
+    return true;
+}
+
+static BOOL rsa_export_blob(AnemCspKey *key, DWORD blob_type, LPBYTE pbData,
+                            LPDWORD pcbDataLen)
+{
+    EVP_PKEY *pkey = key->rsa;
+    BIGNUM *n = NULL;
+    BIGNUM *e = NULL;
+    BIGNUM *p = NULL;
+    BIGNUM *q = NULL;
+    BIGNUM *dmp1 = NULL;
+    BIGNUM *dmq1 = NULL;
+    BIGNUM *iqmp = NULL;
+    BIGNUM *d = NULL;
+    BLOBHEADER header;
+    RSAPUBKEY rsa_header;
+    BYTE *out;
+    int bits;
+    DWORD n_len;
+    DWORD p_len;
+    DWORD needed;
+    DWORD pubexp = 0;
+    BOOL ok = FALSE;
+
+    if (pcbDataLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    if (pkey == NULL) {
+        return fail(NTE_BAD_KEY);
+    }
+    bits = EVP_PKEY_get_bits(pkey);
+    if (bits < 512 || bits > 16384 || bits % 16 != 0) {
+        return fail(NTE_FAIL);
+    }
+    n_len = (DWORD)bits / 8u;
+    p_len = (DWORD)bits / 16u;
+    if (blob_type == PUBLICKEYBLOB) {
+        needed = (DWORD)sizeof header + (DWORD)sizeof rsa_header + n_len;
+    } else if (blob_type == PRIVATEKEYBLOB) {
+        if ((key->flags & CRYPT_EXPORTABLE) == 0u) {
+            return fail(NTE_PERM);
+        }
+        needed = (DWORD)sizeof header + (DWORD)sizeof rsa_header + n_len
+               + 5u * p_len + n_len;
+    } else {
+        return fail(NTE_BAD_TYPE);
+    }
+    if (pbData == NULL || *pcbDataLen < needed) {
+        *pcbDataLen = needed;
+        return fail(ERROR_MORE_DATA);
+    }
+
+    n = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_N);
+    e = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_E);
+    if (n == NULL || e == NULL || !bn_to_dword(e, &pubexp)) {
+        goto done;
+    }
+    memset(&header, 0, sizeof header);
+    header.bType = (BYTE)blob_type;
+    header.bVersion = CUR_BLOB_VERSION;
+    header.aiKeyAlg = key->alg;
+    memset(&rsa_header, 0, sizeof rsa_header);
+    rsa_header.magic = (blob_type == PUBLICKEYBLOB) ? ANEM_RSA1_MAGIC
+                                                    : ANEM_RSA2_MAGIC;
+    rsa_header.bitlen = (DWORD)bits;
+    rsa_header.pubexp = pubexp;
+    out = pbData;
+    memcpy(out, &header, sizeof header);
+    out += sizeof header;
+    memcpy(out, &rsa_header, sizeof rsa_header);
+    out += sizeof rsa_header;
+    if (!put_bn_le(&out, n, n_len)) {
+        goto done;
+    }
+    if (blob_type == PRIVATEKEYBLOB) {
+        p = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_FACTOR1);
+        q = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_FACTOR2);
+        dmp1 = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_EXPONENT1);
+        dmq1 = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_EXPONENT2);
+        iqmp = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_COEFFICIENT1);
+        d = rsa_get_bn(pkey, OSSL_PKEY_PARAM_RSA_D);
+        if (!put_bn_le(&out, p, p_len) || !put_bn_le(&out, q, p_len)
+            || !put_bn_le(&out, dmp1, p_len) || !put_bn_le(&out, dmq1, p_len)
+            || !put_bn_le(&out, iqmp, p_len) || !put_bn_le(&out, d, n_len)) {
+            goto done;
+        }
+    }
+    *pcbDataLen = needed;
+    ok = TRUE;
+done:
+    BN_free(n);
+    BN_free(e);
+    BN_free(p);
+    BN_free(q);
+    BN_free(dmp1);
+    BN_free(dmq1);
+    BN_free(iqmp);
+    BN_free(d);
+    return ok ? TRUE : fail(NTE_FAIL);
+}
+
+static EVP_PKEY *rsa_import_public(const BYTE *mod, DWORD mod_len, DWORD pubexp)
+{
+    BIGNUM *n = BN_lebin2bn(mod, (int)mod_len, NULL);
+    BIGNUM *e = BN_new();
+    OSSL_PARAM_BLD *bld = NULL;
+    OSSL_PARAM *params = NULL;
+    EVP_PKEY_CTX *ctx = NULL;
+    EVP_PKEY *pkey = NULL;
+
+    if (n == NULL || e == NULL || BN_set_word(e, pubexp) != 1) {
+        goto done;
+    }
+    bld = OSSL_PARAM_BLD_new();
+    if (bld == NULL
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, n) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, e) != 1) {
+        goto done;
+    }
+    params = OSSL_PARAM_BLD_to_param(bld);
+    if (params == NULL) {
+        goto done;
+    }
+    ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    if (ctx == NULL) {
+        goto done;
+    }
+    if (EVP_PKEY_fromdata_init(ctx) != 1
+        || EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) != 1) {
+        EVP_PKEY_free(pkey);
+        pkey = NULL;
+    }
+done:
+    EVP_PKEY_CTX_free(ctx);
+    OSSL_PARAM_free(params);
+    OSSL_PARAM_BLD_free(bld);
+    BN_free(n);
+    BN_free(e);
+    return pkey;
+}
+
+static EVP_PKEY *rsa_import_private(const BYTE *mod, const BYTE *p,
+                                    const BYTE *q, const BYTE *dmp1,
+                                    const BYTE *dmq1, const BYTE *iqmp,
+                                    const BYTE *d, DWORD n_len, DWORD p_len,
+                                    DWORD pubexp)
+{
+    BIGNUM *bn_n = BN_lebin2bn(mod, (int)n_len, NULL);
+    BIGNUM *bn_p = BN_lebin2bn(p, (int)p_len, NULL);
+    BIGNUM *bn_q = BN_lebin2bn(q, (int)p_len, NULL);
+    BIGNUM *bn_dmp1 = BN_lebin2bn(dmp1, (int)p_len, NULL);
+    BIGNUM *bn_dmq1 = BN_lebin2bn(dmq1, (int)p_len, NULL);
+    BIGNUM *bn_iqmp = BN_lebin2bn(iqmp, (int)p_len, NULL);
+    BIGNUM *bn_d = BN_lebin2bn(d, (int)n_len, NULL);
+    BIGNUM *bn_e = BN_new();
+    OSSL_PARAM_BLD *bld = NULL;
+    OSSL_PARAM *params = NULL;
+    EVP_PKEY_CTX *ctx = NULL;
+    EVP_PKEY *pkey = NULL;
+
+    if (bn_n == NULL || bn_p == NULL || bn_q == NULL || bn_dmp1 == NULL
+        || bn_dmq1 == NULL || bn_iqmp == NULL || bn_d == NULL || bn_e == NULL
+        || BN_set_word(bn_e, pubexp) != 1) {
+        goto done;
+    }
+    bld = OSSL_PARAM_BLD_new();
+    if (bld == NULL
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_N, bn_n) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_E, bn_e) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_D, bn_d) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_FACTOR1, bn_p) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_FACTOR2, bn_q) != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_EXPONENT1, bn_dmp1)
+               != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_EXPONENT2, bn_dmq1)
+               != 1
+        || OSSL_PARAM_BLD_push_BN(bld, OSSL_PKEY_PARAM_RSA_COEFFICIENT1, bn_iqmp)
+               != 1) {
+        goto done;
+    }
+    params = OSSL_PARAM_BLD_to_param(bld);
+    if (params == NULL) {
+        goto done;
+    }
+    ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+    if (ctx == NULL) {
+        goto done;
+    }
+    if (EVP_PKEY_fromdata_init(ctx) != 1
+        || EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEYPAIR, params) != 1) {
+        EVP_PKEY_free(pkey);
+        pkey = NULL;
+    }
+done:
+    EVP_PKEY_CTX_free(ctx);
+    OSSL_PARAM_free(params);
+    OSSL_PARAM_BLD_free(bld);
+    BN_free(bn_n);
+    BN_free(bn_p);
+    BN_free(bn_q);
+    BN_free(bn_dmp1);
+    BN_free(bn_dmq1);
+    BN_free(bn_iqmp);
+    BN_free(bn_d);
+    BN_free(bn_e);
+    return pkey;
+}
+
+static BOOL rsa_sign_digest(EVP_PKEY *pkey, const EVP_MD *md,
+                            const BYTE *digest, DWORD digest_len,
+                            LPBYTE pbSignature, LPDWORD pcbSigLen)
+{
+    EVP_PKEY_CTX *ctx;
+    size_t sig_len;
+    BOOL ok;
+
+    if (pkey == NULL || md == NULL || pcbSigLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    sig_len = (size_t)EVP_PKEY_size(pkey);
+    if (pbSignature == NULL || *pcbSigLen < (DWORD)sig_len) {
+        *pcbSigLen = (DWORD)sig_len;
+        return fail(ERROR_MORE_DATA);
+    }
+    ctx = EVP_PKEY_CTX_new(pkey, NULL);
+    if (ctx == NULL) {
+        return fail(NTE_NO_MEMORY);
+    }
+    ok = EVP_PKEY_sign_init(ctx) == 1
+      && EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) == 1
+      && EVP_PKEY_CTX_set_signature_md(ctx, md) == 1
+      && EVP_PKEY_sign(ctx, pbSignature, &sig_len, digest, digest_len) == 1;
+    EVP_PKEY_CTX_free(ctx);
+    if (!ok) {
+        return fail(NTE_FAIL);
+    }
+    *pcbSigLen = (DWORD)sig_len;
+    return TRUE;
+}
+
+static BOOL rsa_verify_digest(EVP_PKEY *pkey, const EVP_MD *md,
+                              const BYTE *digest, DWORD digest_len,
+                              const BYTE *pbSignature, DWORD cbSigLen)
+{
+    EVP_PKEY_CTX *ctx;
+    int result;
+
+    if (pkey == NULL || md == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    ctx = EVP_PKEY_CTX_new(pkey, NULL);
+    if (ctx == NULL) {
+        return fail(NTE_NO_MEMORY);
+    }
+    result = EVP_PKEY_verify_init(ctx) == 1
+          && EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) == 1
+          && EVP_PKEY_CTX_set_signature_md(ctx, md) == 1
+          && EVP_PKEY_verify(ctx, pbSignature, cbSigLen, digest, digest_len);
+    EVP_PKEY_CTX_free(ctx);
+    if (result == 1) {
+        return TRUE;
+    }
+    return fail(result == 0 ? NTE_BAD_SIGNATURE : NTE_FAIL);
+}
+
+/* The provider has no persistent keyset. A user key is generated lazily for
+ * each key spec and lives for the provider context's lifetime. */
+static AnemCspKey *user_key_for(HCRYPTPROV hProv, DWORD spec)
+{
+    AnemCspKey *slot = NULL;
+    EVP_PKEY *pkey;
+    ALG_ID alg;
+
+    if (spec != AT_KEYEXCHANGE && spec != AT_SIGNATURE) {
+        return NULL;
+    }
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (g_key[i].used && g_key[i].prov == hProv && g_key[i].user_key
+            && g_key[i].key_spec == spec) {
+            return &g_key[i];
+        }
+    }
+    for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+        if (!g_key[i].used) {
+            slot = &g_key[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        return NULL;
+    }
+    pkey = rsa_generate();
+    if (pkey == NULL) {
+        return NULL;
+    }
+    alg = (spec == AT_SIGNATURE) ? CALG_RSA_SIGN : CALG_RSA_KEYX;
+    if (!rsa_key_init(slot, alg, CRYPT_EXPORTABLE, pkey)) {
+        EVP_PKEY_free(pkey);
+        return NULL;
+    }
+    slot->prov = hProv;
+    slot->user_key = true;
+    slot->key_spec = spec;
+    return slot;
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
@@ -687,12 +1072,42 @@ ANEM_CSP_API BOOL WINAPI CPGenKey(HCRYPTPROV hProv, ALG_ID Algid,
                                   DWORD dwFlags, HCRYPTKEY *phKey)
 {
     AnemCspKey *slot = NULL;
-    DWORD key_len = aes_key_len(Algid);
+    DWORD key_len;
 
     if (phKey == NULL) {
         return fail(ERROR_INVALID_PARAMETER);
     }
     *phKey = 0;
+    if (Algid == CALG_RSA_SIGN || Algid == CALG_RSA_KEYX) {
+        EVP_PKEY *pkey;
+
+        EnterCriticalSection(&g_lock);
+        if (ctx_lookup(hProv) == NULL) {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_BAD_KEYSET);
+        }
+        for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+            if (!g_key[i].used) {
+                slot = &g_key[i];
+                break;
+            }
+        }
+        if (slot == NULL) {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_NO_MEMORY);
+        }
+        pkey = rsa_generate();
+        if (pkey == NULL) {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_NO_MEMORY);
+        }
+        (void)rsa_key_init(slot, Algid, dwFlags, pkey);
+        slot->prov = hProv;
+        *phKey = key_handle(slot);
+        LeaveCriticalSection(&g_lock);
+        return TRUE;
+    }
+    key_len = aes_key_len(Algid);
     if (key_len == 0) {
         return fail(NTE_BAD_ALGID);
     }
@@ -820,6 +1235,10 @@ ANEM_CSP_API BOOL WINAPI CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey,
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
     }
+    if (key->rsa != NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_INVALID_PARAMETER);
+    }
     if (dwParam == KP_MODE) {
         memcpy(&value, pbData, sizeof value);
         if (value == CRYPT_MODE_CBC || value == CRYPT_MODE_ECB) {
@@ -861,6 +1280,19 @@ ANEM_CSP_API BOOL WINAPI CPGetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey,
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
     }
+    if (key->rsa != NULL) {
+        if (dwParam == KP_ALGID) {
+            value = key->alg;
+        } else if (dwParam == KP_KEYLEN) {
+            value = key->key_len * 8u;
+        } else {
+            LeaveCriticalSection(&g_lock);
+            return fail(NTE_INVALID_PARAMETER);
+        }
+        result = copy_out(pbData, pcbDataLen, &value, sizeof value);
+        LeaveCriticalSection(&g_lock);
+        return result;
+    }
     if (dwParam == KP_IV) {
         result = copy_out(pbData, pcbDataLen, key->iv, ANEM_BLOCK_SIZE);
     } else {
@@ -893,20 +1325,27 @@ ANEM_CSP_API BOOL WINAPI CPExportKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
     BLOBHEADER header;
     DWORD needed;
     DWORD cb_key;
+    BOOL result;
 
     (void)hPubKey;
     (void)dwFlags;
     if (pcbDataLen == NULL) {
         return fail(ERROR_INVALID_PARAMETER);
     }
-    if (dwBlobType != PLAINTEXTKEYBLOB) {
-        return fail(NTE_BAD_TYPE);
-    }
     EnterCriticalSection(&g_lock);
     key = key_lookup(hKey);
     if (key == NULL || key->prov != hProv) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
+    }
+    if (key->rsa != NULL) {
+        result = rsa_export_blob(key, dwBlobType, pbData, pcbDataLen);
+        LeaveCriticalSection(&g_lock);
+        return result;
+    }
+    if (dwBlobType != PLAINTEXTKEYBLOB) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_TYPE);
     }
     if ((key->flags & CRYPT_EXPORTABLE) == 0u) {
         LeaveCriticalSection(&g_lock);
@@ -950,6 +1389,81 @@ ANEM_CSP_API BOOL WINAPI CPImportKey(HCRYPTPROV hProv, const BYTE *pbData,
         return fail(NTE_BAD_LEN);
     }
     memcpy(&header, pbData, sizeof header);
+    if (header.bType == PUBLICKEYBLOB || header.bType == PRIVATEKEYBLOB) {
+        RSAPUBKEY rsa_header;
+        const BYTE *body;
+        EVP_PKEY *pkey;
+        DWORD n_len;
+        DWORD p_len;
+
+        if (header.bVersion != CUR_BLOB_VERSION) {
+            return fail(NTE_BAD_VER);
+        }
+        if (cbDataLen < (DWORD)sizeof header + (DWORD)sizeof rsa_header) {
+            return fail(NTE_BAD_LEN);
+        }
+        memcpy(&rsa_header, pbData + sizeof header, sizeof rsa_header);
+        if (rsa_header.bitlen < 512 || rsa_header.bitlen > 16384
+            || rsa_header.bitlen % 16u != 0u) {
+            return fail(NTE_BAD_LEN);
+        }
+        n_len = rsa_header.bitlen / 8u;
+        p_len = rsa_header.bitlen / 16u;
+        body = pbData + sizeof header + sizeof rsa_header;
+        if (header.bType == PUBLICKEYBLOB) {
+            if (rsa_header.magic != ANEM_RSA1_MAGIC) {
+                return fail(NTE_BAD_DATA);
+            }
+            if (cbDataLen != (DWORD)sizeof header + (DWORD)sizeof rsa_header
+                             + n_len) {
+                return fail(NTE_BAD_LEN);
+            }
+            pkey = rsa_import_public(body, n_len, rsa_header.pubexp);
+        } else {
+            if (rsa_header.magic != ANEM_RSA2_MAGIC) {
+                return fail(NTE_BAD_DATA);
+            }
+            if (cbDataLen != (DWORD)sizeof header + (DWORD)sizeof rsa_header
+                             + n_len + 5u * p_len + n_len) {
+                return fail(NTE_BAD_LEN);
+            }
+            pkey = rsa_import_private(
+                body, body + n_len, body + n_len + p_len,
+                body + n_len + 2u * p_len, body + n_len + 3u * p_len,
+                body + n_len + 4u * p_len, body + n_len + 5u * p_len,
+                n_len, p_len, rsa_header.pubexp);
+        }
+        if (pkey == NULL) {
+            return fail(NTE_FAIL);
+        }
+        if (header.aiKeyAlg != CALG_RSA_SIGN
+            && header.aiKeyAlg != CALG_RSA_KEYX) {
+            EVP_PKEY_free(pkey);
+            return fail(NTE_BAD_ALGID);
+        }
+        EnterCriticalSection(&g_lock);
+        if (ctx_lookup(hProv) == NULL) {
+            LeaveCriticalSection(&g_lock);
+            EVP_PKEY_free(pkey);
+            return fail(NTE_BAD_KEYSET);
+        }
+        for (unsigned i = 0; i < ANEM_CSP_SLOTS; i++) {
+            if (!g_key[i].used) {
+                slot = &g_key[i];
+                break;
+            }
+        }
+        if (slot == NULL) {
+            LeaveCriticalSection(&g_lock);
+            EVP_PKEY_free(pkey);
+            return fail(NTE_NO_MEMORY);
+        }
+        (void)rsa_key_init(slot, header.aiKeyAlg, dwFlags, pkey);
+        slot->prov = hProv;
+        *phKey = key_handle(slot);
+        LeaveCriticalSection(&g_lock);
+        return TRUE;
+    }
     if (header.bType != PLAINTEXTKEYBLOB) {
         return fail(NTE_BAD_TYPE);
     }
@@ -1019,6 +1533,10 @@ ANEM_CSP_API BOOL WINAPI CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
     if (key == NULL || key->prov != hProv) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
+    }
+    if (key->rsa != NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NOT_SUPPORTED);
     }
     if (key->padding != ZERO_PADDING && key->padding != PKCS5_PADDING) {
         LeaveCriticalSection(&g_lock);
@@ -1091,6 +1609,10 @@ ANEM_CSP_API BOOL WINAPI CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey,
         LeaveCriticalSection(&g_lock);
         return fail(NTE_BAD_KEY);
     }
+    if (key->rsa != NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NOT_SUPPORTED);
+    }
     if (key->padding != ZERO_PADDING && key->padding != PKCS5_PADDING) {
         LeaveCriticalSection(&g_lock);
         return fail(NTE_INVALID_PARAMETER);
@@ -1135,7 +1657,7 @@ ANEM_CSP_API BOOL WINAPI CPHashSessionKey(HCRYPTPROV hProv, HCRYPTHASH hHash,
     hash = hash_lookup(hHash);
     key = key_lookup(hKey);
     if (hash != NULL && key != NULL && hash->prov == hProv
-        && key->prov == hProv && hash->md != NULL) {
+        && key->prov == hProv && key->rsa == NULL && hash->md != NULL) {
         error = NTE_FAIL;
         ok = EVP_DigestUpdate(hash->md, key->key, key->key_len) == 1;
     }
@@ -1148,14 +1670,50 @@ ANEM_CSP_API BOOL WINAPI CPSignHash(HCRYPTPROV hProv, HCRYPTHASH hHash,
                                     DWORD dwFlags, LPBYTE pbSignature,
                                     LPDWORD pcbSigLen)
 {
-    (void)hProv;
-    (void)hHash;
-    (void)dwKeySpec;
+    AnemCspHash *hash;
+    AnemCspKey *key;
+    EVP_MD_CTX *tmp;
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    const EVP_MD *md;
+    BOOL result = FALSE;
+
     (void)szDescription;
     (void)dwFlags;
-    (void)pbSignature;
-    (void)pcbSigLen;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pcbSigLen == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    if (dwKeySpec != AT_SIGNATURE && dwKeySpec != AT_KEYEXCHANGE) {
+        return fail(NTE_BAD_KEY);
+    }
+    EnterCriticalSection(&g_lock);
+    hash = hash_lookup(hHash);
+    if (hash == NULL || hash->prov != hProv || hash->md == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_HASH);
+    }
+    key = user_key_for(hProv, dwKeySpec);
+    if (key == NULL || key->rsa == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    tmp = EVP_MD_CTX_new();
+    if (tmp == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    if (EVP_MD_CTX_copy_ex(tmp, hash->md) == 1
+        && EVP_DigestFinal_ex(tmp, digest, &digest_len) == 1) {
+        md = EVP_MD_CTX_get0_md(hash->md);
+        result = rsa_sign_digest(key->rsa, md, digest, (DWORD)digest_len,
+                                 pbSignature, pcbSigLen);
+    } else {
+        result = fail(NTE_FAIL);
+    }
+    EVP_MD_CTX_free(tmp);
+    secure_zero(digest, sizeof digest);
+    LeaveCriticalSection(&g_lock);
+    return result;
 }
 
 ANEM_CSP_API BOOL WINAPI CPVerifySignature(HCRYPTPROV hProv,
@@ -1165,23 +1723,74 @@ ANEM_CSP_API BOOL WINAPI CPVerifySignature(HCRYPTPROV hProv,
                                            LPCWSTR szDescription,
                                            DWORD dwFlags)
 {
-    (void)hProv;
-    (void)hHash;
-    (void)pbSignature;
-    (void)cbSigLen;
-    (void)hPubKey;
+    AnemCspHash *hash;
+    AnemCspKey *key;
+    EVP_MD_CTX *tmp;
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    const EVP_MD *md;
+    BOOL result = FALSE;
+
     (void)szDescription;
     (void)dwFlags;
-    return fail(NTE_NOT_SUPPORTED);
+    if (pbSignature == NULL || cbSigLen == 0u) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    EnterCriticalSection(&g_lock);
+    hash = hash_lookup(hHash);
+    key = key_lookup(hPubKey);
+    if (hash == NULL || hash->prov != hProv || hash->md == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_HASH);
+    }
+    if (key == NULL || key->prov != hProv || key->rsa == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEY);
+    }
+    tmp = EVP_MD_CTX_new();
+    if (tmp == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    if (EVP_MD_CTX_copy_ex(tmp, hash->md) == 1
+        && EVP_DigestFinal_ex(tmp, digest, &digest_len) == 1) {
+        md = EVP_MD_CTX_get0_md(hash->md);
+        result = rsa_verify_digest(key->rsa, md, digest, (DWORD)digest_len,
+                                   pbSignature, cbSigLen);
+    } else {
+        result = fail(NTE_FAIL);
+    }
+    EVP_MD_CTX_free(tmp);
+    secure_zero(digest, sizeof digest);
+    LeaveCriticalSection(&g_lock);
+    return result;
 }
 
 ANEM_CSP_API BOOL WINAPI CPGetUserKey(HCRYPTPROV hProv, DWORD dwKeySpec,
                                       HCRYPTKEY *phUserKey)
 {
-    (void)hProv;
-    (void)dwKeySpec;
-    (void)phUserKey;
-    return fail(NTE_NOT_SUPPORTED);
+    AnemCspKey *key;
+
+    if (phUserKey == NULL) {
+        return fail(ERROR_INVALID_PARAMETER);
+    }
+    *phUserKey = 0;
+    if (dwKeySpec != AT_SIGNATURE && dwKeySpec != AT_KEYEXCHANGE) {
+        return fail(NTE_BAD_KEY);
+    }
+    EnterCriticalSection(&g_lock);
+    if (ctx_lookup(hProv) == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_BAD_KEYSET);
+    }
+    key = user_key_for(hProv, dwKeySpec);
+    if (key == NULL) {
+        LeaveCriticalSection(&g_lock);
+        return fail(NTE_NO_MEMORY);
+    }
+    *phUserKey = key_handle(key);
+    LeaveCriticalSection(&g_lock);
+    return TRUE;
 }
 
 ANEM_CSP_API BOOL WINAPI CPDuplicateKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
@@ -1210,13 +1819,17 @@ ANEM_CSP_API BOOL WINAPI CPDuplicateKey(HCRYPTPROV hProv, HCRYPTKEY hKey,
             }
         }
         if (slot != NULL) {
-            *slot = *src;
-            /* A duplicated key starts its own stream; sharing the EVP state
-             * would interleave two callers' blocks. */
-            slot->stream = NULL;
-            slot->stream_dir = 0;
-            *phKey = key_handle(slot);
-            found = TRUE;
+            if (src->rsa != NULL && EVP_PKEY_up_ref(src->rsa) != 1) {
+                error = NTE_FAIL;
+            } else {
+                *slot = *src;
+                /* A duplicated key starts its own stream; sharing the EVP
+                 * state would interleave two callers' blocks. */
+                slot->stream = NULL;
+                slot->stream_dir = 0;
+                *phKey = key_handle(slot);
+                found = TRUE;
+            }
         }
     }
     LeaveCriticalSection(&g_lock);

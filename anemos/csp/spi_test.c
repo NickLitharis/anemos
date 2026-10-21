@@ -73,6 +73,9 @@ typedef BOOL (WINAPI *FnDecrypt)(HCRYPTPROV, HCRYPTKEY, HCRYPTHASH, BOOL, DWORD,
                                  LPBYTE, LPDWORD);
 typedef BOOL (WINAPI *FnDuplicateKey)(HCRYPTPROV, HCRYPTKEY, LPDWORD, DWORD,
                                       HCRYPTKEY *);
+typedef BOOL (WINAPI *FnGetUserKey)(HCRYPTPROV, DWORD, HCRYPTKEY *);
+typedef BOOL (WINAPI *FnVerifySignature)(HCRYPTPROV, HCRYPTHASH, const BYTE *,
+                                         DWORD, HCRYPTKEY, LPCWSTR, DWORD);
 
 static FnAcquire pAcquire;
 static FnRelease pRelease;
@@ -94,6 +97,8 @@ static FnExportKey pExportKey;
 static FnEncrypt pEncrypt;
 static FnDecrypt pDecrypt;
 static FnDuplicateKey pDuplicateKey;
+static FnGetUserKey pGetUserKey;
+static FnVerifySignature pVerifySignature;
 
 static const char *k_required[] = {
     "CPAcquireContext", "CPReleaseContext", "CPGenKey", "CPDeriveKey",
@@ -673,18 +678,139 @@ static void check_streaming(HCRYPTPROV prov)
     check(pDestroyKey(prov, key) == TRUE, "destroy streaming key");
 }
 
+static void check_rsa(HCRYPTPROV prov)
+{
+    HCRYPTKEY user = 0;
+    HCRYPTKEY user2 = 0;
+    HCRYPTKEY pub = 0;
+    HCRYPTKEY rsa = 0;
+    HCRYPTKEY priv2 = 0;
+    HCRYPTKEY noexp = 0;
+    HCRYPTHASH hash = 0;
+    HCRYPTHASH hash2 = 0;
+    BYTE pubblob[512];
+    BYTE privblob[1024];
+    BYTE pub2[512];
+    BYTE sig[256];
+    DWORD publen = 0;
+    DWORD privlen = 0;
+    DWORD siglen = 0;
+    DWORD vlen;
+    DWORD value;
+    BLOBHEADER header;
+    RSAPUBKEY rsa_header;
+
+    check(pGetUserKey(prov, AT_SIGNATURE, &user) == TRUE && user != 0,
+          "CPGetUserKey AT_SIGNATURE");
+    check(pGetUserKey(prov, AT_SIGNATURE, &user2) == TRUE && user2 == user,
+          "CPGetUserKey is stable");
+    check(pGetUserKey(prov, 99, &user2) == FALSE, "invalid key spec rejected");
+    check(pGetUserKey(prov, AT_KEYEXCHANGE, &user2) == TRUE && user2 != 0,
+          "CPGetUserKey AT_KEYEXCHANGE");
+
+    publen = 0;
+    check(pExportKey(prov, user, 0, PUBLICKEYBLOB, 0, NULL, &publen) == FALSE
+          && GetLastError() == (DWORD)ERROR_MORE_DATA && publen == 148u,
+          "RSA public blob size query");
+    publen = sizeof pubblob;
+    check(pExportKey(prov, user, 0, PUBLICKEYBLOB, 0, pubblob, &publen) == TRUE
+          && publen == 148u, "RSA public blob export");
+    memcpy(&header, pubblob, sizeof header);
+    memcpy(&rsa_header, pubblob + sizeof header, sizeof rsa_header);
+    check(header.bType == PUBLICKEYBLOB && header.bVersion == CUR_BLOB_VERSION
+          && header.aiKeyAlg == CALG_RSA_SIGN
+          && rsa_header.magic == 0x31415352u && rsa_header.bitlen == 1024u
+          && rsa_header.pubexp == 65537u, "RSA public blob layout");
+    check(pImportKey(prov, pubblob, publen, 0, 0, &pub) == TRUE && pub != 0,
+          "RSA public blob import");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, pub, KP_KEYLEN, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == 1024u, "RSA KP_KEYLEN");
+    vlen = sizeof value;
+    check(pGetKeyParam(prov, pub, KP_ALGID, (LPBYTE)&value, &vlen, 0) == TRUE
+          && value == CALG_RSA_SIGN, "RSA KP_ALGID");
+
+    check(pCreateHash(prov, CALG_SHA_256, 0, 0, &hash) == TRUE
+          && pHashData(prov, hash, (const BYTE *)"abc", 3, 0) == TRUE,
+          "RSA sign hash");
+    siglen = 0;
+    check(pSignHash(prov, hash, AT_SIGNATURE, NULL, 0, NULL, &siglen) == FALSE
+          && GetLastError() == (DWORD)ERROR_MORE_DATA && siglen == 128u,
+          "RSA signature size query");
+    siglen = sizeof sig;
+    check(pSignHash(prov, hash, AT_SIGNATURE, NULL, 0, sig, &siglen) == TRUE
+          && siglen == 128u, "CPSignHash SHA-256");
+    check(pVerifySignature(prov, hash, sig, siglen, pub, NULL, 0) == TRUE,
+          "CPVerifySignature accepts the signature");
+    sig[0] ^= 0x01u;
+    check(pVerifySignature(prov, hash, sig, siglen, pub, NULL, 0) == FALSE,
+          "tampered signature is rejected");
+    sig[0] ^= 0x01u;
+    check(pVerifySignature(prov, hash, sig, siglen, user, NULL, 0) == TRUE,
+          "verify with the private handle");
+
+    check(pCreateHash(prov, CALG_SHA_256, 0, 0, &hash2) == TRUE
+          && pHashData(prov, hash2, (const BYTE *)"abd", 3, 0) == TRUE,
+          "RSA wrong-digest hash");
+    check(pVerifySignature(prov, hash2, sig, siglen, pub, NULL, 0) == FALSE,
+          "signature does not verify a different digest");
+
+    check(pGenKey(prov, CALG_RSA_KEYX, CRYPT_EXPORTABLE, &rsa) == TRUE,
+          "CPGenKey RSA_KEYX");
+    privlen = 0;
+    check(pExportKey(prov, rsa, 0, PRIVATEKEYBLOB, 0, NULL, &privlen) == FALSE
+          && GetLastError() == (DWORD)ERROR_MORE_DATA && privlen == 596u,
+          "RSA private blob size query");
+    privlen = sizeof privblob;
+    check(pExportKey(prov, rsa, 0, PRIVATEKEYBLOB, 0, privblob, &privlen) == TRUE
+          && privlen == 596u, "RSA private blob export");
+    memcpy(&header, privblob, sizeof header);
+    memcpy(&rsa_header, privblob + sizeof header, sizeof rsa_header);
+    check(header.bType == PRIVATEKEYBLOB && header.aiKeyAlg == CALG_RSA_KEYX
+          && rsa_header.magic == 0x32415352u && rsa_header.bitlen == 1024u,
+          "RSA private blob layout");
+    check(pImportKey(prov, privblob, privlen, 0, CRYPT_EXPORTABLE, &priv2)
+          == TRUE, "RSA private blob import");
+    {
+        DWORD left = sizeof pubblob;
+        DWORD right = sizeof pub2;
+
+        check(pExportKey(prov, rsa, 0, PUBLICKEYBLOB, 0, pubblob, &left)
+              == TRUE, "export public from original RSA key");
+        check(pExportKey(prov, priv2, 0, PUBLICKEYBLOB, 0, pub2, &right)
+              == TRUE, "export public from imported private key");
+        check(left == right && memcmp(pubblob, pub2, left) == 0,
+              "private import preserves the key");
+    }
+
+    check(pGenKey(prov, CALG_RSA_SIGN, 0, &noexp) == TRUE,
+          "non-exportable RSA key");
+    privlen = 0;
+    check(pExportKey(prov, noexp, 0, PRIVATEKEYBLOB, 0, NULL, &privlen) == FALSE
+          && GetLastError() == (DWORD)NTE_PERM,
+          "non-exportable private key refuses export");
+
+    check(pDestroyKey(prov, noexp) == TRUE, "destroy non-exportable RSA key");
+    check(pDestroyKey(prov, priv2) == TRUE, "destroy imported RSA key");
+    check(pDestroyKey(prov, rsa) == TRUE, "destroy generated RSA key");
+    check(pDestroyKey(prov, pub) == TRUE, "destroy public RSA key");
+    check(pDestroyKey(prov, user) == TRUE, "destroy user key");
+    check(pDestroyHash(prov, hash2) == TRUE, "destroy wrong-digest hash");
+    check(pDestroyHash(prov, hash) == TRUE, "destroy sign hash");
+}
+
 static void check_stubs(HCRYPTPROV prov, HCRYPTHASH hash)
 {
     HCRYPTKEY key = 0;
     BYTE sig[8];
     DWORD sig_len = sizeof sig;
 
-    check(pGenKey(prov, CALG_RSA_KEYX, 0, &key) == FALSE
+    check(pGenKey(prov, (ALG_ID)0x1234, 0, &key) == FALSE
           && GetLastError() == (DWORD)NTE_BAD_ALGID,
-          "non-symmetric key generation is refused");
-    check(pSignHash(prov, hash, AT_SIGNATURE, NULL, 0, sig, &sig_len) == FALSE
-          && GetLastError() == (DWORD)NTE_NOT_SUPPORTED,
-          "CPSignHash is an explicit stub");
+          "unsupported key algorithm");
+    check(pSignHash(prov, hash, 99, NULL, 0, sig, &sig_len) == FALSE
+          && GetLastError() == (DWORD)NTE_BAD_KEY,
+          "invalid signing key spec");
     check(pCreateHash(prov, (ALG_ID)0x1234, 0, 0, &hash) == FALSE
           && GetLastError() == (DWORD)NTE_BAD_ALGID,
           "unknown hash algorithm is rejected");
@@ -746,13 +872,17 @@ int main(int argc, char **argv)
     pDecrypt = (FnDecrypt)(void *)GetProcAddress(dll, "CPDecrypt");
     pDuplicateKey = (FnDuplicateKey)(void *)GetProcAddress(dll,
                                                            "CPDuplicateKey");
+    pGetUserKey = (FnGetUserKey)(void *)GetProcAddress(dll, "CPGetUserKey");
+    pVerifySignature = (FnVerifySignature)(void *)GetProcAddress(dll,
+                                                           "CPVerifySignature");
     if (pAcquire == NULL || pRelease == NULL || pGenRandom == NULL
         || pCreateHash == NULL || pHashData == NULL || pGetHashParam == NULL
         || pDestroyHash == NULL || pDuplicateHash == NULL
         || pGetProvParam == NULL || pGenKey == NULL || pSignHash == NULL
         || pDeriveKey == NULL || pDestroyKey == NULL || pGetKeyParam == NULL
         || pSetKeyParam == NULL || pImportKey == NULL || pExportKey == NULL
-        || pEncrypt == NULL || pDecrypt == NULL || pDuplicateKey == NULL) {
+        || pEncrypt == NULL || pDecrypt == NULL || pDuplicateKey == NULL
+        || pGetUserKey == NULL || pVerifySignature == NULL) {
         printf("FAIL required function pointers\n");
         return 1;
     }
@@ -792,6 +922,7 @@ int main(int argc, char **argv)
                "b00361a396177a9cb410ff61f20015ad");
     check_keys(prov);
     check_streaming(prov);
+    check_rsa(prov);
     check_provider_params(prov);
     check_stubs(prov, 0);
     check(pRelease(prov, 0) == TRUE, "CPReleaseContext final");
