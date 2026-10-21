@@ -20,7 +20,7 @@ API specification, and the platform types come from the SDK headers.
 | Keys | `CPGenKey`, `CPDeriveKey`, `CPImportKey`, `CPExportKey`, `CPDestroyKey`, `CPDuplicateKey`, `CPGetKeyParam`, `CPSetKeyParam` | AES-128/192/256; `PLAINTEXTKEYBLOB`; CBC/ECB; PKCS#5 or zero padding; `KP_ALGID`, `KP_KEYLEN`, `KP_BLOCKLEN`, `KP_MODE`, `KP_PADDING`, `KP_IV`; export only when `CRYPT_EXPORTABLE` |
 | Cipher | `CPEncrypt`, `CPDecrypt` | multi-call streaming with OpenSSL's block buffering; one-shot is the final call; PKCS#5 or zero padding; per-key stream state |
 | Hash session key | `CPHashSessionKey` | feeds the key bytes into an existing hash |
-| RSA | `CPGenKey` (`CALG_RSA_SIGN`/`CALG_RSA_KEYX`), `CPGetUserKey`, `CPSignHash`, `CPVerifySignature`, `CPImportKey`/`CPExportKey` | 1024-bit key pairs; `PUBLICKEYBLOB`/`PRIVATEKEYBLOB`; PKCS#1 v1.5 sign/verify over MD5/SHA-1/SHA-256; ephemeral user key per spec |
+| RSA | `CPGenKey` (`CALG_RSA_SIGN`/`CALG_RSA_KEYX`), `CPGetUserKey`, `CPSignHash`, `CPVerifySignature`, `CPImportKey`/`CPExportKey` | 1024-bit key pairs; `PUBLICKEYBLOB`/`PRIVATEKEYBLOB`; PKCS#1 v1.5 sign/verify over MD5/SHA-1/SHA-256; signatures are **little-endian**, the CryptoAPI/`rsaenh` convention, not OpenSSL's big-endian byte order; ephemeral user key per spec |
 | Not implemented | raw RSA `CPEncrypt`/`CPDecrypt`, keyset persistence | explicit `NTE_NOT_SUPPORTED`/`NTE_INVALID_PARAMETER` |
 
 The 23 required and 2 optional names from `advapi32`'s loader table are all
@@ -133,10 +133,34 @@ collection.
 Status: the harness is prepared and its host half is green; the guest run is
 recorded only when it actually passes.
 
+## P3.5 — the CryptoAPI path (plumbing)
+
+`anemos/csp/api_run.sh` drives the provider the way an application does:
+`CryptAcquireContext` plus the `Crypt*` calls, with advapi32 doing the
+parameter translation. The provider is registered in a throwaway Wine prefix's
+**32-bit** registry view (the harness is a 32-bit PE) and the key is removed
+afterwards.
+
+This is a plumbing gate, not an XP result. Wine does not enforce the
+provider-image signature check that stock XP applies before
+`CPAcquireContext`, so the gate can prove that registration, handle mapping,
+blob layouts and parameter conventions agree with CryptoAPI — it cannot prove
+that XP will trust the file. The signing question is unchanged.
+
+The gate also settles the **signature byte order**. CryptoAPI's `rsaenh`
+returns the little-endian form of the PKCS#1 integer; OpenSSL returns the
+big-endian form. A sign/verify round-trip inside one provider cannot see the
+difference, so `cryptapi_test.c` exports the public key, imports it into Wine's
+builtin enhanced provider, and requires that provider to accept our signature
+and reject its byte-reversed twin. The probe used to establish the convention
+signed with Wine's builtin provider and verified the result with OpenSSL:
+as-is failed, reversed verified.
+
 ## Reproducing
 
 ```sh
 anemos/crypto/build-openssl.sh   # once, if the engine is not built
 anemos/csp/run.sh                # 11/11, no VM
+anemos/csp/api_run.sh            # P3.5: CryptoAPI plumbing, 7/7 under Wine
 anemos/csp/xp_run.sh             # P3.4: the same checks inside XP
 ```
