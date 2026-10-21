@@ -40,7 +40,8 @@ growing set of subsystems that already pass it.
 | **P3.1 — CSP SPI skeleton** | ✅ 11/11, 23 + 2 exports | `docs/P3-CSP-SPI.md` |
 | **P3.2a — symmetric keys + AES** | ✅ AES-128/192/256, CBC/ECB, PLAINTEXTKEYBLOB, SPI KATs | `docs/P3-CSP-SPI.md` |
 | **P3.2b — streaming cipher** | ✅ multi-call CPEncrypt/CPDecrypt, block buffering | `docs/P3-CSP-SPI.md` |
-| P3.3+ — RSA, CryptoAPI path | ⏳ next | — |
+| **P3.3 — RSA keys + sign/verify** | ✅ 1024-bit, PUBLIC/PRIVATEKEYBLOB, PKCS#1 v1.5 | `docs/P3-CSP-SPI.md` |
+| P3.4+ — XP guest run, CryptoAPI path | ⏳ next | — |
 | P4 — network stack | ❌ not started | — |
 | P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
 
@@ -130,8 +131,8 @@ not published here.
 - **P2 — wire formats.** DNS (RFC 1035) and DHCP (RFC 2131/2132), each with a
   codec, a client, and an independent oracle. Done.
 - **P3 — crypto.** A modern engine (OpenSSL 3.5.7) behind the empty `rsaenh`
-  slot. The engine, the provider SPI, and AES key objects with one-shot and
-  streaming cipher are proved; RSA and the CryptoAPI path remain.
+  slot. The engine, the provider SPI, AES (one-shot and streaming) and RSA
+  sign/verify are proved; the XP guest run and the CryptoAPI path remain.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
   last.
 - **P5 — the kernel proper.** Memory manager, object manager, scheduler, I/O:

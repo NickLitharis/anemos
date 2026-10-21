@@ -159,7 +159,7 @@ rsaenh** and still returns. A host-side KAT cannot catch this recursion.
 | P3.1 | CSP skeleton exporting all 23+2 names; acquire/release; hash objects; `CPGenRandom`; property queries | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.2a | Symmetric keys: `CPGenKey`, `CPDeriveKey`, `CPEncrypt/Decrypt`, import/export, one-shot AES | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.2b | Streaming `CPEncrypt`/`CPDecrypt` across multiple calls | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
-| P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | sign/verify and negative controls through the SPI |
+| P3.3 | RSA: key import/export, `CPSignHash`, `CPVerifySignature`, `CPGetUserKey` | ✅ 11/11 — `docs/P3-CSP-SPI.md` |
 | P3.4 | Run the same tests inside XP via `LoadLibrary` | identical results to the host run |
 | P3.5 | CryptoAPI integration | `CryptAcquireContext` path, under a documented harness decision about signing |
 | P3.6 | RAND recursion test with the DLL in the `rsaenh` slot | key generation succeeds and does not recurse |
