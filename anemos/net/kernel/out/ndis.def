@@ -4,3 +4,4 @@ EXPORTS
     NdisDeregisterProtocol@8
     NdisOpenAdapter@44
     NdisCloseAdapter@8
+    NdisReEnumerateProtocolBindings@4

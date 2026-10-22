@@ -23,6 +23,8 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NDIS_OPEN \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_REENUM \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 static unsigned long fnv1a(const char *text)
 {
@@ -414,6 +416,9 @@ int main(int argc, char **argv)
             unsigned long state[6] = {0, 0, 0, 0, 0, 0};
             unsigned long attempt;
             char guid[128] = {0};
+            ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_REENUM, NULL, 0,
+                                 NULL, 0, &returned, NULL);
+            report("ndis.reenum_rc", ok ? 1u : 0u);
             report("ndis.restart", restart_nic());
             Sleep(2000);
             HKEY key = NULL;

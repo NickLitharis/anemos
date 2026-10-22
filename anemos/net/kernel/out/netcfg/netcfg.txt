@@ -1,0 +1,16 @@
+driver.write 1
+inf.write 1
+com.init 0
+netcfg.create 0
+netcfg.init 0
+netcfg.lock_qi 0
+netcfg.lock -2147180512
+netcfg.class 0
+netcfg.install -2147180508
+netcfg.apply -2147180508
+device.open 1
+ndis.bound 0
+ndis.calls 0
+ndis.open_status 0
+ioctl.ping 1
+all netcfg observations complete

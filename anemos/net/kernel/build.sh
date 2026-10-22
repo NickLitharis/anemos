@@ -39,6 +39,7 @@ EXPORTS=(
 NDIS_EXPORTS=(
     NdisRegisterProtocol@16 NdisDeregisterProtocol@8
     NdisOpenAdapter@44 NdisCloseAdapter@8
+    NdisReEnumerateProtocolBindings@4
 )
 {
     echo "LIBRARY ndis.sys"
