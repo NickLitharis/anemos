@@ -59,6 +59,7 @@ static LONG nt_call(PFN_NTLOADDRIVER fn, const WCHAR *path)
 }
 
 static FILE *record;
+static void report_str(const char *name, const char *value);
 
 static void report(const char *name, unsigned long value)
 {
@@ -72,6 +73,72 @@ static const GUID net_class_guid = {
     0x4d36e972, 0xe325, 0x11ce,
     { 0xbf, 0xc1, 0x08, 0x00, 0x2b, 0xe1, 0x03, 0x18 }
 };
+
+static int find_nic_guid(char *guid, DWORD capacity)
+{
+    for (unsigned long slot = 0; slot < 16; slot++) {
+        char key_path[256];
+        HKEY key = NULL;
+        DWORD size = capacity;
+
+        (void)snprintf(key_path, sizeof key_path,
+            "SYSTEM\\CurrentControlSet\\Control\\Class\\"
+            "{4D36E972-E325-11CE-BFC1-08002BE10318}\\%04lu", slot);
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, key_path, 0, KEY_READ, &key)
+                != ERROR_SUCCESS) {
+            continue;
+        }
+        if (RegQueryValueExA(key, "NetCfgInstanceId", NULL, NULL,
+                             (BYTE *)guid, &size) == ERROR_SUCCESS) {
+            RegCloseKey(key);
+            return 1;
+        }
+        RegCloseKey(key);
+    }
+    return 0;
+}
+
+static void set_ndi_linkage(void)
+{
+    HKEY key = NULL;
+    DWORD disposition = 0;
+
+    if (RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+            "SYSTEM\\CurrentControlSet\\Services\\AnemosNet\\Ndi\\Interfaces",
+            0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, &disposition) != ERROR_SUCCESS) {
+        report("ndis.linkage", 0);
+        return;
+    }
+    (void)RegSetValueExA(key, "UpperRange", 0, REG_SZ,
+                         (const BYTE *)"noupper", 8);
+    (void)RegSetValueExA(key, "LowerRange", 0, REG_SZ,
+                         (const BYTE *)"ndis5", 6);
+    RegCloseKey(key);
+
+    {
+        char guid[128] = {0};
+        char path[160];
+        char multi[200];
+        DWORD multi_size;
+
+        key = NULL;
+        if (find_nic_guid(guid, sizeof guid)
+            && RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+                   "SYSTEM\\CurrentControlSet\\Services\\AnemosNet\\Linkage",
+                   0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, NULL)
+               == ERROR_SUCCESS) {
+            (void)snprintf(path, sizeof path, "\\Device\\%s", guid);
+            memset(multi, 0, sizeof multi);
+            (void)snprintf(multi, sizeof multi, "%s", path);
+            multi_size = (DWORD)strlen(multi) + 2;
+            (void)RegSetValueExA(key, "Bind", 0, REG_MULTI_SZ,
+                                 (const BYTE *)multi, multi_size);
+            RegCloseKey(key);
+        }
+        report_str("ndis.bind_name", path);
+    }
+    report("ndis.linkage", 1);
+}
 
 static unsigned long restart_nic(void)
 {
@@ -184,6 +251,7 @@ int main(int argc, char **argv)
         }
     }
     if (service != NULL) {
+        set_ndi_linkage();
         ok = StartServiceA(service, 0, NULL);
         report("service.start", ok ? 1u : 0u);
         if (!ok) {
@@ -260,7 +328,7 @@ int main(int argc, char **argv)
             if (guid[0] != '\0') {
                 char path[160];
                 unsigned long opened = 0;
-                (void)snprintf(path, sizeof path, "\\Device\\{%s}", guid);
+                (void)snprintf(path, sizeof path, "\\Device\\%s", guid);
                 ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_OPEN,
                                      path, (DWORD)(strlen(path) + 1) * 2,
                                      &opened, sizeof opened, &returned, NULL);
