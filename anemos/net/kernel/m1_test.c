@@ -45,8 +45,6 @@ typedef struct {
 typedef LONG (NTAPI *PFN_NTLOADDRIVER)(ANEM_UNICODE_STRING *);
 typedef LONG (NTAPI *PFN_NTUNLOADDRIVER)(ANEM_UNICODE_STRING *);
 static PFN_NTLOADDRIVER nt_load;
-static PFN_NTUNLOADDRIVER nt_unload;
-static int nt_loaded;
 
 static LONG nt_call(PFN_NTLOADDRIVER fn, const WCHAR *path)
 {
@@ -201,6 +199,8 @@ static int write_driver(void)
 
 int main(int argc, char **argv)
 {
+    const char *mode = argc > 2 ? argv[2] : "install";
+    int install_mode = strcmp(mode, "query") != 0;
     SC_HANDLE manager = NULL;
     SC_HANDLE service = NULL;
     HANDLE device = INVALID_HANDLE_VALUE;
@@ -211,8 +211,25 @@ int main(int argc, char **argv)
     if (argc > 1 && argv[1][0] != '\0') {
         record = fopen(argv[1], "w");
     }
+    if (strcmp(mode, "cleanup") == 0) {
+        SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+        SC_HANDLE svc = scm == NULL ? NULL
+                      : OpenServiceA(scm, "AnemosNet", SERVICE_ALL_ACCESS);
+        if (svc != NULL) {
+            SERVICE_STATUS st;
+            (void)ControlService(svc, SERVICE_CONTROL_STOP, &st);
+            report("cleanup.delete_service", DeleteService(svc) ? 1u : 0u);
+            CloseServiceHandle(svc);
+        }
+        if (scm != NULL) {
+            CloseServiceHandle(scm);
+        }
+        report("cleanup.delete_file", DeleteFileA(DRIVER_PATH) ? 1u : 0u);
+        goto finish;
+    }
 
-    report("driver.write", write_driver());
+    report("driver.write", install_mode ? write_driver() : 0);
+    if (install_mode) {
     manager = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
     report("service.manager", manager != NULL ? 1u : 0u);
     if (manager != NULL) {
@@ -243,8 +260,8 @@ int main(int argc, char **argv)
         }
         service = CreateServiceA(manager, "AnemosNet", "AnemosNet",
                                  SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER,
-                                 SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL,
-                                 DRIVER_PATH, NULL, NULL, NULL, NULL, NULL);
+                                 SERVICE_SYSTEM_START, SERVICE_ERROR_NORMAL,
+                                 DRIVER_PATH, "NDIS", NULL, NULL, NULL, NULL);
         report("service.create", service != NULL ? 1u : 0u);
         if (service == NULL) {
             report("service.create.err", (unsigned long)GetLastError());
@@ -260,14 +277,13 @@ int main(int argc, char **argv)
             report("service.start.err", (unsigned long)GetLastError());
             if (ntdll != NULL) {
                 nt_load = (PFN_NTLOADDRIVER)(void *)GetProcAddress(ntdll, "NtLoadDriver");
-                nt_unload = (PFN_NTUNLOADDRIVER)(void *)GetProcAddress(ntdll, "NtUnloadDriver");
             }
             if (nt_load != NULL) {
                 LONG st = nt_call(nt_load, DRIVER_REG_PATH);
                 report("ntloaddriver.status", (unsigned long)st);
-                nt_loaded = st == 0;
             }
         }
+    }
     }
     device = CreateFileA("\\\\.\\AnemosNet", GENERIC_READ | GENERIC_WRITE,
                          0, NULL, OPEN_EXISTING, 0, NULL);
@@ -356,23 +372,13 @@ int main(int argc, char **argv)
         CloseHandle(device);
     }
     if (service != NULL) {
-        SERVICE_STATUS status;
-
-        ok = ControlService(service, SERVICE_CONTROL_STOP, &status);
-        report("service.stop", ok ? 1u : 0u);
-        if (nt_loaded && nt_unload != NULL) {
-            report("ntunloaddriver.status",
-                   (unsigned long)nt_call((PFN_NTLOADDRIVER)(void *)nt_unload,
-                                          DRIVER_REG_PATH));
-        }
-        report("service.delete", DeleteService(service) ? 1u : 0u);
         CloseServiceHandle(service);
     }
     if (manager != NULL) {
         CloseServiceHandle(manager);
     }
-    (void)DeleteFileA(DRIVER_PATH);
 
+finish:
     if (record != NULL) {
         fprintf(record, "all kernel M1 observations complete\n");
         fflush(record);

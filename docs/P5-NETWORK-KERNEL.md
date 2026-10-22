@@ -95,11 +95,17 @@ the guest and are now encoded in `anemos/net/kernel/`:
 - Opening the adapter directly by `\Device\{NetCfgInstanceId}` returns
   `0xC0010006` (`NDIS_STATUS_OPEN_FAILED`).
 
-Conclusion: NDIS 5 builds its binding list during boot-time PnP enumeration.
-A protocol that registers later, even with correct `Ndi` and `Linkage` keys,
-is not added to that list. The next step is to install the driver as a
-system-start service (group `NDIS`) and reboot, then query the binding; or to
-install it through a proper INF so PnP enumerates it.
+The system-start test settled it. The service was installed as
+`SERVICE_SYSTEM_START` in group `NDIS`, the guest rebooted, and the driver
+loaded at boot (`driver.write=0`, `device.open=1`). NDIS still did not call
+`ProtocolBindAdapter`, and direct open still returned `0xC0010006`.
+
+Conclusion: NDIS binding is not driven by the service key alone. A protocol
+must be a **Network class component** (`Control\Network\{4D36E972-...}` with
+its component id and binding interfaces), which an INF creates through
+`netcfgx`. A plain service plus `Ndi`/`Linkage` values is not enough. The next
+step is a protocol INF installed as a network component, not more registry
+keys.
 
 The NIC itself is ready, which removes the hardware blocker.
 

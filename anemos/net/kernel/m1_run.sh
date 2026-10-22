@@ -42,7 +42,7 @@ python3 "$NTFS" "$DISK" put "$VICTIM" "$EXE" || die "cannot install the test"
 TAG="net-m1-$(date +%Y%m%d-%H%M%S)"
 say "== boot, install, ping, unload (tag $TAG) =="
 python3 "$RUNNER" extract --disk "$DISK" --tag "$TAG" \
-    --exe "mspaint.exe $GUEST_CERT" --collect anemos-m1.txt \
+    --exe "mspaint.exe $GUEST_CERT ${M1_MODE:-install}" --collect anemos-m1.txt \
     --settle "$SETTLE" --shutdown-grace 300 \
     || die "runner extract failed (tag $TAG)"
 GUEST_COPY="$REPO/harness/conformance/out/$TAG/guest-anemos-m1.txt"
@@ -55,8 +55,19 @@ grep -qx 'all kernel M1 observations complete' "$OUT/anemos-m1.txt" \
     || die "incomplete certificate"
 say "certificate: $OUT/anemos-m1.txt"
 cat "$OUT/anemos-m1.txt"
-for want in "service.start 1" "ioctl.ping 1" "ioctl.signature 1095648589" "selftest.rc 1" "selftest.match 1" "ndis.rc 1" "service.stop 1"; do
+if [ "${M1_MODE:-install}" = "cleanup" ]; then
+    wants=("cleanup.delete_file 1")
+elif [ "${M1_MODE:-install}" = "query" ]; then
+    wants=("device.open 1" "ioctl.ping 1" "selftest.match 1" "ndis.bound 1")
+else
+    wants=("service.start 1" "ioctl.ping 1" "ioctl.signature 1095648589" "selftest.rc 1" "selftest.match 1" "ndis.rc 1")
+fi
+for want in "${wants[@]}"; do
     grep -qx "$want" "$OUT/anemos-m1.txt" \
         || die "K1 gate failed: missing '$want'"
 done
-say "K2 PASS: driver loaded, ping returned ANEM, kernel lwIP self-test matched, driver unloaded (NDIS registration reported; binding tracked in docs)"
+if [ "${M1_MODE:-install}" = "query" ]; then
+    say "K3 PASS: NDIS protocol bound at boot, ping and selftest still work"
+else
+    say "install PASS: system-start driver installed (reboot for NDIS enumeration)"
+fi
