@@ -1,0 +1,164 @@
+K SYSTEM\CurrentControlSet\Control\Network\{4D36E975-E325-11CE-BFC1-08002BE10318}
+V  type=1 size=17 Network Protocol
+V Class type=1 size=9 NetTrans
+K {1F61667C-3CA6-4179-9D34-67C9AE418F5F}
+V Characteristics type=4 size=4 38000000
+V InfPath type=1 size=12 netrast.inf
+V InfSection type=1 size=17 Ndi-PptpProtocol
+V Description type=1 size=34 Point to Point Tunneling Protocol
+V ComponentId type=1 size=8 ms_pptp
+K Ndi
+V ClsID type=1 size=39 {6e65cbc4-926d-11d0-8e27-00c04fc99dcf}
+V HelpText type=1 size=72 Allows you to securely connect to a private network using the Internet.
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=8 nolower
+K {61770326-0F07-46A4-8CE9-8E45B7DE5CDB}
+V Characteristics type=4 size=4 28000000
+V InfPath type=1 size=13 nettcpip.inf
+V InfSection type=1 size=23 MS_WINS.PrimaryInstall
+V Description type=1 size=29 WINS Client(TCP/IP) Protocol
+V ComponentId type=1 size=9 ms_netbt
+K Ndi
+V Service type=1 size=6 NetBT
+K Interfaces
+V UpperRange type=1 size=8 netbios
+V LowerRange type=1 size=4 tdi
+K {67B3A5C7-035A-4817-8849-3A8A69DBAA19}
+V Characteristics type=4 size=4 38000000
+V InfPath type=1 size=13 nettcpip.inf
+V InfSection type=1 size=28 MS_NETBT_SMB.PrimaryInstall
+V Description type=1 size=47 Message-oriented TCP/IP Protocol (SMB session)
+V ComponentId type=1 size=13 ms_netbt_smb
+K Linkage
+V Bind type=7 size=1 
+V Route type=7 size=1 
+V Export type=7 size=20 [\Device\NetbiosSmb]
+K Ndi
+V BindForm type=1 size=11 NetbiosSmb
+V HelpText type=1 size=137 A protocol layered on TCP/IP which preserves message boundaries.  This instance of the protocol is for use by the file sharing protocol.
+K Interfaces
+V UpperRange type=1 size=12 netbios_smb
+V LowerRange type=1 size=8 nolower
+K {8DE50D1B-9E47-4D80-925D-5089047CE10E}
+V Characteristics type=4 size=4 28000000
+V InfPath type=1 size=12 ndisuio.inf
+V InfSection type=1 size=8 Install
+V Description type=1 size=27 NDIS Usermode I/O Protocol
+V ComponentId type=1 size=11 ms_ndisuio
+K Ndi
+V Service type=1 size=8 Ndisuio
+V HelpText type=1 size=50 A driver to support user-mode I/O on NDIS devices
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=22 ndis5,ndis4,ndis5_uio
+K {90C9A536-F8C6-4655-84C3-4A09CD695B54}
+V Characteristics type=4 size=4 a0000000
+V InfPath type=1 size=13 nettcpip.inf
+V InfSection type=1 size=24 MS_TCPIP.PrimaryInstall
+V Description type=1 size=27 Internet Protocol (TCP/IP)
+V ComponentId type=1 size=9 ms_tcpip
+K Ndi
+V ClsId type=1 size=39 {A907657F-6FDF-11D0-8EFB-00C04FD912B2}
+V HelpText type=1 size=20 @netcfgx.dll,-50001
+V Service type=1 size=6 Tcpip
+V CoServices type=7 size=51 [Tcpip][Netbt][Lmhosts][Dhcp][Dnscache][PolicyAgent][Nla]
+V ExcludeSetupStartServices type=7 size=13 [PolicyAgent]
+K Interfaces
+V UpperRange type=1 size=4 tdi
+V LowerRange type=1 size=48 ndis4,ndis5,ndisatm,ndiswanip,ndis5_ip,ndis1394
+K {B2F87B2C-6742-4D20-8352-9372335879E4}
+V Characteristics type=4 size=4 28000000
+V InfPath type=1 size=12 netrast.inf
+V InfSection type=1 size=18 Ndi-PppoeProtocol
+V Description type=1 size=38 Point to Point Protocol Over Ethernet
+V ComponentId type=1 size=9 ms_pppoe
+K Ndi
+V ClsID type=1 size=39 {e949da38-c39d-4460-8ea7-a39152c56836}
+V Service type=1 size=9 RasPppoe
+V HelpText type=1 size=95 Provides the abilitiy to connect a host to a Remote Access Concentrator that supports RFC2516.
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=12 ndis4,ndis5
+K {C177BC72-39F1-466F-8DB6-F226E56A57A7}
+V Characteristics type=4 size=4 28000000
+V InfPath type=1 size=12 netrast.inf
+V InfSection type=1 size=12 Ndi-NdisWan
+V Description type=1 size=30 Remote Access NDIS WAN Driver
+V ComponentId type=1 size=11 ms_ndiswan
+K Ndi
+V ClsID type=1 size=39 {6e65cbc3-926d-11d0-8e27-00c04fc99dcf}
+V Service type=1 size=8 NdisWan
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=39 ndisatm,ndiscowan,ndiswan,ndiswanasync
+K Parameters
+V QoSPriorityThreshold type=4 size=4 00000000
+V QoSFragmentSize type=4 size=4 00000000
+K {FA449CB7-00E7-454B-B8B1-E71FFD9D0379}
+V Characteristics type=4 size=4 38000000
+V InfPath type=1 size=12 netrast.inf
+V InfSection type=1 size=17 Ndi-L2tpProtocol
+V Description type=1 size=27 Layer 2 Tunneling Protocol
+V ComponentId type=1 size=8 ms_l2tp
+K Ndi
+V ClsID type=1 size=39 {6e65cbc6-926d-11d0-8e27-00c04fc99dcf}
+V HelpText type=1 size=72 Allows you to securely connect to a private network using the Internet.
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=8 nolower
+K SYSTEM\CurrentControlSet\Services\Tcpip\Linkage
+V Bind type=7 size=66 [\Device\{ABFC280F-E5B5-4FDD-A45A-938194D984E2}][\Device\NdisWanIp]
+V Route type=7 size=54 ["{ABFC280F-E5B5-4FDD-A45A-938194D984E2}"]["NdisWanIp"]
+V Export type=7 size=160 [\Device\Tcpip_{ABFC280F-E5B5-4FDD-A45A-938194D984E2}][\Device\Tcpip_{C8686406-46A1-430A-ADA1-814DB7973805}][\Device\Tcpip_{69D6CA9F-8F4F-4AE9-9B74-AB10CED50DA7}]
+K SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces
+K {69D6CA9F-8F4F-4AE9-9B74-AB10CED50DA7}
+V UseZeroBroadcast type=4 size=4 00000000
+V EnableDHCP type=4 size=4 00000000
+V IPAddress type=7 size=9 [0.0.0.0]
+V SubnetMask type=7 size=9 [0.0.0.0]
+V DefaultGateway type=7 size=1 
+V EnableDeadGWDetect type=4 size=4 01000000
+V DontAddDefaultGateway type=4 size=4 00000000
+K {ABFC280F-E5B5-4FDD-A45A-938194D984E2}
+V UseZeroBroadcast type=4 size=4 00000000
+V EnableDeadGWDetect type=4 size=4 01000000
+V EnableDHCP type=4 size=4 01000000
+V IPAddress type=7 size=9 [0.0.0.0]
+V SubnetMask type=7 size=9 [0.0.0.0]
+V DefaultGateway type=7 size=1 
+V DefaultGatewayMetric type=7 size=1 
+V NameServer type=1 size=1 
+V Domain type=1 size=1 
+V RegistrationEnabled type=4 size=4 01000000
+V RegisterAdapterName type=4 size=4 00000000
+V TCPAllowedPorts type=7 size=3 [0]
+V UDPAllowedPorts type=7 size=3 [0]
+V RawIPAllowedProtocols type=7 size=3 [0]
+V NTEContextList type=7 size=12 [0x00000002]
+V DhcpClassIdBin type=3 size=0 
+V DhcpServer type=1 size=16 192.168.103.254
+V Lease type=4 size=4 08070000
+V LeaseObtainedTime type=4 size=4 605cd96a
+V T1 type=4 size=4 e45fd96a
+V T2 type=4 size=4 8762d96a
+V LeaseTerminatesTime type=4 size=4 6863d96a
+V IPAutoconfigurationAddress type=1 size=8 0.0.0.0
+V IPAutoconfigurationMask type=1 size=12 255.255.0.0
+V IPAutoconfigurationSeed type=4 size=4 00000000
+V AddressType type=4 size=4 00000000
+V DhcpIPAddress type=1 size=16 192.168.103.129
+V DhcpSubnetMask type=1 size=14 255.255.255.0
+V DhcpNameServer type=1 size=14 192.168.103.2
+V DhcpDefaultGateway type=7 size=15 [192.168.103.2]
+V DhcpDomain type=1 size=12 localdomain
+V DhcpSubnetMaskOpt type=7 size=15 [255.255.255.0]
+K {C8686406-46A1-430A-ADA1-814DB7973805}
+V UseZeroBroadcast type=4 size=4 00000000
+V EnableDHCP type=4 size=4 00000000
+V IPAddress type=7 size=9 [0.0.0.0]
+V SubnetMask type=7 size=9 [0.0.0.0]
+V DefaultGateway type=7 size=1 
+V EnableDeadGWDetect type=4 size=4 01000000
+V DontAddDefaultGateway type=4 size=4 00000000
+all registry observations complete

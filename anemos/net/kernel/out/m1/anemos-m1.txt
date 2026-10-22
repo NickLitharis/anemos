@@ -1,3 +1,2 @@
-cleanup.delete_service 1
-cleanup.delete_file 1
+cleanup.delete_file 0
 all kernel M1 observations complete

@@ -114,6 +114,51 @@ static void set_ndi_linkage(void)
     RegCloseKey(key);
 
     {
+        const char *component =
+            "SYSTEM\\CurrentControlSet\\Control\\Network\\"
+            "{4D36E975-E325-11CE-BFC1-08002BE10318}\\"
+            "{3B2A9C21-8F4E-4D7A-9C61-2E5F0A7B1D33}";
+        HKEY ckey = NULL;
+        if (RegCreateKeyExA(HKEY_LOCAL_MACHINE, component, 0, NULL, 0,
+                            KEY_ALL_ACCESS, NULL, &ckey, NULL) == ERROR_SUCCESS) {
+            DWORD characteristics = 0xA0000000UL;
+            (void)RegSetValueExA(ckey, "Description", 0, REG_SZ,
+                (const BYTE *)"Anemos Network Protocol", 24);
+            (void)RegSetValueExA(ckey, "ComponentId", 0, REG_SZ,
+                (const BYTE *)"anemosnet", 10);
+            (void)RegSetValueExA(ckey, "Characteristics", 0, REG_DWORD,
+                (const BYTE *)&characteristics, sizeof characteristics);
+            (void)RegSetValueExA(ckey, "InfPath", 0, REG_SZ,
+                (const BYTE *)"anemosnet.inf", 14);
+            (void)RegSetValueExA(ckey, "InfSection", 0, REG_SZ,
+                (const BYTE *)"AnemosNet.PrimaryInstall", 25);
+            RegCloseKey(ckey);
+        }
+        if (RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+                "SYSTEM\\CurrentControlSet\\Control\\Network\\"
+                "{4D36E975-E325-11CE-BFC1-08002BE10318}\\"
+                "{3B2A9C21-8F4E-4D7A-9C61-2E5F0A7B1D33}\\Ndi",
+                0, NULL, 0, KEY_ALL_ACCESS, NULL, &ckey, NULL) == ERROR_SUCCESS) {
+            (void)RegSetValueExA(ckey, "Service", 0, REG_SZ,
+                (const BYTE *)"AnemosNet", 10);
+            (void)RegSetValueExA(ckey, "HelpText", 0, REG_SZ,
+                (const BYTE *)"Anemos protocol driver", 23);
+            RegCloseKey(ckey);
+        }
+        if (RegCreateKeyExA(HKEY_LOCAL_MACHINE,
+                "SYSTEM\\CurrentControlSet\\Control\\Network\\"
+                "{4D36E975-E325-11CE-BFC1-08002BE10318}\\"
+                "{3B2A9C21-8F4E-4D7A-9C61-2E5F0A7B1D33}\\Ndi\\Interfaces",
+                0, NULL, 0, KEY_ALL_ACCESS, NULL, &ckey, NULL) == ERROR_SUCCESS) {
+            (void)RegSetValueExA(ckey, "UpperRange", 0, REG_SZ,
+                (const BYTE *)"noupper", 8);
+            (void)RegSetValueExA(ckey, "LowerRange", 0, REG_SZ,
+                (const BYTE *)"ndis5", 6);
+            RegCloseKey(ckey);
+        }
+        report("ndis.component", 1);
+    }
+    {
         char guid[128] = {0};
         char path[160];
         char multi[200];
@@ -131,6 +176,21 @@ static void set_ndi_linkage(void)
             multi_size = (DWORD)strlen(multi) + 2;
             (void)RegSetValueExA(key, "Bind", 0, REG_MULTI_SZ,
                                  (const BYTE *)multi, multi_size);
+            {
+                char route[160];
+                (void)snprintf(route, sizeof route, "\"%s\"", guid);
+                (void)RegSetValueExA(key, "Route", 0, REG_MULTI_SZ,
+                                     (const BYTE *)route,
+                                     (DWORD)strlen(route) + 2);
+            }
+            {
+                char export_name[200];
+                (void)snprintf(export_name, sizeof export_name,
+                               "\\Device\\AnemosNet_%s", guid);
+                (void)RegSetValueExA(key, "Export", 0, REG_MULTI_SZ,
+                                     (const BYTE *)export_name,
+                                     (DWORD)strlen(export_name) + 2);
+            }
             RegCloseKey(key);
         }
         report_str("ndis.bind_name", path);
@@ -223,6 +283,39 @@ int main(int argc, char **argv)
         }
         if (scm != NULL) {
             CloseServiceHandle(scm);
+        }
+        {
+            const char *tcpip_ndi =
+                "SYSTEM\\CurrentControlSet\\Control\\Network\\"
+                "{4D36E975-E325-11CE-BFC1-08002BE10318}\\"
+                "{90C9A536-F8C6-4655-84C3-4A09CD695B54}\\Ndi";
+            HKEY tkey = NULL;
+            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, tcpip_ndi, 0,
+                              KEY_ALL_ACCESS, &tkey) == ERROR_SUCCESS) {
+                char saved[64] = {0};
+                DWORD size = sizeof saved;
+                if (RegQueryValueExA(tkey, "AnemosSavedService", NULL, NULL,
+                                     (BYTE *)saved, &size) == ERROR_SUCCESS) {
+                    (void)RegSetValueExA(tkey, "Service", 0, REG_SZ,
+                                         (const BYTE *)saved,
+                                         (DWORD)strlen(saved) + 1);
+                    (void)RegDeleteValueA(tkey, "AnemosSavedService");
+                    report("cleanup.tcpip_restored", 1);
+                }
+                RegCloseKey(tkey);
+            }
+        }
+        {
+            const char *component =
+                "SYSTEM\\CurrentControlSet\\Control\\Network\\"
+                "{4D36E975-E325-11CE-BFC1-08002BE10318}\\"
+                "{3B2A9C21-8F4E-4D7A-9C61-2E5F0A7B1D33}";
+            char sub[256];
+            (void)snprintf(sub, sizeof sub, "%s\\Ndi\\Interfaces", component);
+            (void)RegDeleteKeyA(HKEY_LOCAL_MACHINE, sub);
+            (void)snprintf(sub, sizeof sub, "%s\\Ndi", component);
+            (void)RegDeleteKeyA(HKEY_LOCAL_MACHINE, sub);
+            (void)RegDeleteKeyA(HKEY_LOCAL_MACHINE, component);
         }
         report("cleanup.delete_file", DeleteFileA(DRIVER_PATH) ? 1u : 0u);
         goto finish;

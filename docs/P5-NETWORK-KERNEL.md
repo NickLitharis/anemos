@@ -100,12 +100,23 @@ The system-start test settled it. The service was installed as
 loaded at boot (`driver.write=0`, `device.open=1`). NDIS still did not call
 `ProtocolBindAdapter`, and direct open still returned `0xC0010006`.
 
-Conclusion: NDIS binding is not driven by the service key alone. A protocol
-must be a **Network class component** (`Control\Network\{4D36E972-...}` with
-its component id and binding interfaces), which an INF creates through
-`netcfgx`. A plain service plus `Ndi`/`Linkage` values is not enough. The next
-step is a protocol INF installed as a network component, not more registry
+A NetTrans component was then created by hand (`Control\Network\{4D36E975-...}`
+with `ComponentId`, `Description`, `InfPath`, `Ndi\Service` and the interface
+ranges), and the existing `ms_tcpip` component was temporarily repointed at
+our service to borrow its binding identity. NDIS still did not call
+`ProtocolBindAdapter`; direct open still returned `0xC0010006`.
+
+Conclusion: manual registry state is not enough. NDIS binding is created by
+the network configuration machinery (`netcfgx`), which installs a component
+through `INetCfg` and notifies NDIS. Writing the keys that installation
+produces does not run that notification. The next step is to install through
+`INetCfg`/`netcfgx` (or a proper NetTrans INF handled by it), not to add more
 keys.
+
+The guest was restored afterwards: the borrowed component value was reverted,
+the AnemosNet component keys were removed, its service and driver file were
+deleted, and `ipconfig` in the guest still shows 192.168.103.129 with tcpip
+working.
 
 The NIC itself is ready, which removes the hardware blocker.
 
