@@ -22,14 +22,62 @@ static volatile LONG ndis_unbind_calls;
 static volatile LONG ndis_bind_successes;
 static volatile LONG ndis_close_calls;
 static KSPIN_LOCK ndis_lock;
+static volatile LONG bind_pending;
+static NDIS_HANDLE pending_bind_context;
+static WCHAR retry_name_buffer[256];
+static UNICODE_STRING retry_name;
+static NDIS_HANDLE retry_protocol;
+static int adapter_context;
+
+static VOID NTAPI open_complete(NDIS_HANDLE context, NDIS_STATUS status,
+                                NDIS_STATUS open_error);
+
+static VOID NTAPI retry_bind_thread(PVOID unused)
+{
+    LARGE_INTEGER delay;
+    NDIS_STATUS status = NDIS_STATUS_FAILURE;
+    NDIS_STATUS open_error = NDIS_STATUS_SUCCESS;
+    NDIS_MEDIUM mediums[1] = { NdisMedium802_3 };
+    UINT selected = 0;
+
+    (void)unused;
+    for (int attempt = 0; attempt < 20; attempt++) {
+        delay.QuadPart = -10000000LL;   /* 1 second */
+        KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        status = NDIS_STATUS_FAILURE;
+        NdisOpenAdapter(&status, &open_error, &ndis_binding, &selected,
+                        mediums, 1, retry_protocol, &adapter_context,
+                        &retry_name, 0, NULL);
+        InterlockedExchange(&ndis_open_status, (LONG)status);
+        InterlockedExchange(&ndis_open_error, (LONG)open_error);
+        InterlockedExchange(&ndis_bind_open_status, (LONG)status);
+        InterlockedExchange(&ndis_bind_open_error, (LONG)open_error);
+        if (status == NDIS_STATUS_SUCCESS || status == NDIS_STATUS_PENDING) {
+            break;
+        }
+    }
+    if (status == NDIS_STATUS_SUCCESS) {
+        InterlockedIncrement(&ndis_bind_successes);
+        InterlockedExchange(&ndis_bound, 1);
+    } else if (status != NDIS_STATUS_PENDING) {
+        InterlockedExchange(&ndis_bind_error, (LONG)status);
+    }
+    if (status != NDIS_STATUS_PENDING && InterlockedExchange(&bind_pending, 0)) {
+        NdisCompleteBindAdapter(pending_bind_context, status, open_error);
+    }
+    PsTerminateSystemThread(STATUS_SUCCESS);
+}
 
 static VOID NTAPI open_complete(NDIS_HANDLE context, NDIS_STATUS status,
                                 NDIS_STATUS open_error)
 {
     (void)context;
-    (void)open_error;
     if (status == NDIS_STATUS_SUCCESS) {
         InterlockedExchange(&ndis_bound, 1);
+        InterlockedIncrement(&ndis_bind_successes);
+    }
+    if (InterlockedExchange(&bind_pending, 0)) {
+        NdisCompleteBindAdapter(pending_bind_context, status, open_error);
     }
 }
 
@@ -126,7 +174,7 @@ static NDIS_STATUS NTAPI bind_adapter(PNDIS_STATUS status,
     (void)system_specific2;
     InterlockedIncrement(&ndis_bind_calls);
     NdisOpenAdapter(&open_status, &open_error, &ndis_binding,
-                    &selected, mediums, 1, bind_context, NULL,
+                    &selected, mediums, 1, ndis_protocol, &adapter_context,
                     device_name, 0, NULL);
     ndis_medium = mediums[0];
     InterlockedExchange(&ndis_open_status, (LONG)open_status);
@@ -136,11 +184,36 @@ static NDIS_STATUS NTAPI bind_adapter(PNDIS_STATUS status,
     if (open_status == NDIS_STATUS_SUCCESS) {
         InterlockedIncrement(&ndis_bind_successes);
         InterlockedExchange(&ndis_bound, 1);
-    } else if (open_status != NDIS_STATUS_PENDING) {
+        *status = open_status;
+        return open_status;
+    }
+    if (open_status != NDIS_STATUS_PENDING) {
         InterlockedExchange(&ndis_bind_error, (LONG)open_status);
     }
-    *status = open_status;
-    return open_status;
+    /* CLOSING is transient during boot or netcfg Apply. Complete the bind
+     * asynchronously after the adapter settles. */
+    pending_bind_context = bind_context;
+    retry_protocol = ndis_protocol;
+    retry_name.Length = device_name->Length;
+    retry_name.MaximumLength = device_name->Length + sizeof(WCHAR);
+    retry_name.Buffer = retry_name_buffer;
+    if (device_name->Length < sizeof retry_name_buffer - sizeof(WCHAR)) {
+        memcpy(retry_name_buffer, device_name->Buffer, device_name->Length);
+        retry_name_buffer[device_name->Length / sizeof(WCHAR)] = L'\0';
+    }
+    if (open_status == NDIS_STATUS_PENDING) {
+        InterlockedExchange(&bind_pending, 1);
+    } else {
+        HANDLE thread = NULL;
+        InterlockedExchange(&bind_pending, 1);
+        (void)PsCreateSystemThread(&thread, 0, NULL, NULL, NULL,
+                                   retry_bind_thread, NULL);
+        if (thread != NULL) {
+            ZwClose(thread);
+        }
+    }
+    *status = NDIS_STATUS_PENDING;
+    return NDIS_STATUS_PENDING;
 }
 
 static VOID NTAPI unbind_adapter(NDIS_HANDLE unbind_context,

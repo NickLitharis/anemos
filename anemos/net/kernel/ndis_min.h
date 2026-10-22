@@ -118,5 +118,6 @@ VOID NTAPI NdisOpenAdapter(PNDIS_STATUS Status, PNDIS_STATUS OpenErrorStatus,
                            PSTRING AddressingInformation);
 VOID NTAPI NdisCloseAdapter(PNDIS_STATUS Status, NDIS_HANDLE BindingHandle);
 VOID NTAPI NdisReEnumerateProtocolBindings(NDIS_HANDLE ProtocolHandle);
+VOID NTAPI NdisCompleteBindAdapter(NDIS_HANDLE BindAdapterContext, NDIS_STATUS Status, NDIS_STATUS OpenStatus);
 
 #endif
