@@ -413,14 +413,18 @@ int main(int argc, char **argv)
             report("selftest.match", answer == expected ? 1u : 0u);
         }
         {
-            unsigned long state[6] = {0, 0, 0, 0, 0, 0};
+            unsigned long state[11] = {0};
             unsigned long attempt;
             char guid[128] = {0};
-            ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_REENUM, NULL, 0,
-                                 NULL, 0, &returned, NULL);
-            report("ndis.reenum_rc", ok ? 1u : 0u);
-            report("ndis.restart", restart_nic());
-            Sleep(2000);
+            if (install_mode) {
+                ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_REENUM, NULL, 0,
+                                     NULL, 0, &returned, NULL);
+                report("ndis.reenum_rc", ok ? 1u : 0u);
+            }
+            if (install_mode) {
+                report("ndis.restart", restart_nic());
+                Sleep(2000);
+            }
             HKEY key = NULL;
             DWORD size = sizeof guid;
             for (unsigned long slot = 0; slot < 16 && guid[0] == '\0'; slot++) {
@@ -439,7 +443,7 @@ int main(int argc, char **argv)
                     RegCloseKey(key);
                 }
             }
-            if (guid[0] != '\0') {
+            if (install_mode && guid[0] != '\0') {
                 char path[160];
                 unsigned long opened = 0;
                 (void)snprintf(path, sizeof path, "\\Device\\%s", guid);
@@ -466,6 +470,11 @@ int main(int argc, char **argv)
             report("ndis.calls", state[3]);
             report("ndis.open_status", state[4]);
             report("ndis.open_error", state[5]);
+            report("ndis.bind_status", state[6]);
+            report("ndis.bind_error", state[7]);
+            report("ndis.unbinds", state[8]);
+            report("ndis.bind_successes", state[9]);
+            report("ndis.closes", state[10]);
         }
         CloseHandle(device);
     }

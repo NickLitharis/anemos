@@ -1,3 +1,24 @@
-cleanup.delete_service 1
-cleanup.delete_file 1
+driver.write 0
+device.open 1
+ioctl.ping 1
+ioctl.signature 1095648589
+selftest.rc 1
+selftest.value 254371596
+selftest.expected 254371596
+selftest.match 1
+ndis.guid {FCEC3991-0779-45A9-A731-C7193BB1DB87}
+ndis.slot 1
+ndis.rc 1
+ndis.bound 0
+ndis.medium 0
+ndis.error 3221291010
+ndis.attempts 25
+ndis.calls 1
+ndis.open_status 3221291010
+ndis.open_error 0
+ndis.bind_status 3221291010
+ndis.bind_error 0
+ndis.unbinds 0
+ndis.bind_successes 0
+ndis.closes 0
 all kernel M1 observations complete
