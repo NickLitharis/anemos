@@ -28,6 +28,16 @@ static WCHAR retry_name_buffer[256];
 static UNICODE_STRING retry_name;
 static NDIS_HANDLE retry_protocol;
 static int adapter_context;
+static NDIS_HANDLE packet_pool;
+static NDIS_HANDLE buffer_pool;
+static UCHAR local_mac[6];
+static volatile LONG rx_frames;
+static volatile LONG tx_frames;
+static volatile LONG arp_replies;
+static KEVENT request_event;
+static PNDIS_REQUEST active_request;
+static NDIS_STATUS active_request_status;
+static PNDIS_BUFFER last_send_buffer;
 
 static VOID NTAPI open_complete(NDIS_HANDLE context, NDIS_STATUS status,
                                 NDIS_STATUS open_error);
@@ -118,8 +128,111 @@ static VOID NTAPI request_complete(NDIS_HANDLE context, PNDIS_REQUEST request,
                                    NDIS_STATUS status)
 {
     (void)context;
-    (void)request;
-    (void)status;
+    if (request == active_request) {
+        active_request_status = status;
+        KeSetEvent(&request_event, IO_NO_INCREMENT, FALSE);
+    }
+}
+
+static NDIS_STATUS do_request(NDIS_REQUEST *request)
+{
+    NDIS_STATUS status;
+
+    active_request = request;
+    active_request_status = NDIS_STATUS_FAILURE;
+    KeClearEvent(&request_event);
+    NdisRequest(&status, ndis_binding, request);
+    if (status == NDIS_STATUS_PENDING) {
+        (void)KeWaitForSingleObject(&request_event, Executive, KernelMode,
+                                    FALSE, NULL);
+        status = active_request_status;
+    }
+    active_request = NULL;
+    return status;
+}
+
+static void set_packet_filter(void)
+{
+    NDIS_REQUEST request;
+    ULONG filter = NDIS_PACKET_TYPE_DIRECTED | NDIS_PACKET_TYPE_MULTICAST
+                 | NDIS_PACKET_TYPE_BROADCAST | NDIS_PACKET_TYPE_PROMISCUOUS;
+
+    memset(&request, 0, sizeof request);
+    request.RequestType = NdisRequestSetInformation;
+    request.DATA.SET_INFORMATION.Oid = OID_GEN_CURRENT_PACKET_FILTER;
+    request.DATA.SET_INFORMATION.InformationBuffer = &filter;
+    request.DATA.SET_INFORMATION.InformationBufferLength = sizeof filter;
+    (void)do_request(&request);
+}
+
+static void query_mac(void)
+{
+    NDIS_REQUEST request;
+
+    memset(&request, 0, sizeof request);
+    request.RequestType = NdisRequestQueryInformation;
+    request.DATA.QUERY_INFORMATION.Oid = OID_802_3_CURRENT_ADDRESS;
+    request.DATA.QUERY_INFORMATION.InformationBuffer = local_mac;
+    request.DATA.QUERY_INFORMATION.InformationBufferLength = sizeof local_mac;
+    (void)do_request(&request);
+}
+
+static NDIS_STATUS NTAPI receive_packet(NDIS_HANDLE context, PNDIS_PACKET packet)
+{
+    PNDIS_BUFFER buffer = NULL;
+    PVOID address = NULL;
+    UINT length = 0;
+    UINT total = 0;
+
+    (void)context;
+    NdisGetFirstBufferFromPacket(packet, &buffer, &address, &length, &total);
+    if (address != NULL && total >= 14) {
+        const unsigned char *frame = address;
+        InterlockedIncrement(&rx_frames);
+        if (total >= 42 && frame[12] == 0x08 && frame[13] == 0x06
+            && frame[20] == 0x00 && frame[21] == 0x02) {
+            InterlockedIncrement(&arp_replies);
+        }
+    }
+    return NDIS_STATUS_SUCCESS;
+}
+
+static void send_arp_request(void)
+{
+    unsigned char frame[42] = {
+        0xff,0xff,0xff,0xff,0xff,0xff,
+        0,0,0,0,0,0,
+        0x08,0x06,
+        0x00,0x01, 0x08,0x00, 6, 4, 0x00,0x01,
+        0,0,0,0,0,0,
+        192,168,103,2,
+        0,0,0,0,0,0,
+        192,168,103,200
+    };
+    NDIS_STATUS status;
+    PNDIS_PACKET packet = NULL;
+    PNDIS_BUFFER buffer = NULL;
+
+    memcpy(frame + 6, local_mac, 6);
+    status = NdisAllocatePacket(&status, &packet, packet_pool);
+    if (status != NDIS_STATUS_SUCCESS || packet == NULL) {
+        return;
+    }
+    status = NdisAllocateBuffer(&status, &buffer, buffer_pool, frame,
+                                (UINT)sizeof frame);
+    if (status != NDIS_STATUS_SUCCESS || buffer == NULL) {
+        NdisFreePacket(packet);
+        return;
+    }
+    last_send_buffer = buffer;
+    NdisChainBufferAtBack(packet, buffer);
+    status = NdisSend(&status, ndis_binding, packet);
+    if (status != NDIS_STATUS_PENDING) {
+        NdisFreeBuffer(buffer);
+        NdisFreePacket(packet);
+        last_send_buffer = NULL;
+    }
+    InterlockedIncrement(&tx_frames);
 }
 
 static NDIS_STATUS NTAPI receive_frame(NDIS_HANDLE context,
@@ -183,6 +296,12 @@ static NDIS_STATUS NTAPI bind_adapter(PNDIS_STATUS status,
     InterlockedExchange(&ndis_bind_open_error, (LONG)open_error);
     if (open_status == NDIS_STATUS_SUCCESS) {
         InterlockedIncrement(&ndis_bind_successes);
+        KeInitializeEvent(&request_event, NotificationEvent, FALSE);
+        NdisAllocatePacketPool(&open_status, &packet_pool, 16,
+                               sizeof(PVOID) * 2);
+        NdisAllocateBufferPool(&open_status, &buffer_pool, 16);
+        query_mac();
+        set_packet_filter();
         InterlockedExchange(&ndis_bound, 1);
         *status = open_status;
         return open_status;
@@ -341,5 +460,18 @@ ULONG anem_ndis_open_error(void) { return (ULONG)ndis_open_error; }
 ULONG anem_ndis_bind_open_status(void) { return (ULONG)ndis_bind_open_status; }
 ULONG anem_ndis_bind_open_error(void) { return (ULONG)ndis_bind_open_error; }
 ULONG anem_ndis_unbind_calls(void) { return (ULONG)ndis_unbind_calls; }
+
+void anem_ndis_traffic(ULONG out[4])
+{
+    LARGE_INTEGER delay;
+
+    send_arp_request();
+    delay.QuadPart = -5000000LL;    /* 500 ms for the reply */
+    KeDelayExecutionThread(KernelMode, FALSE, &delay);
+    out[0] = (ULONG)rx_frames;
+    out[1] = (ULONG)tx_frames;
+    out[2] = (ULONG)arp_replies;
+    out[3] = (ULONG)ndis_bound;
+}
 ULONG anem_ndis_bind_successes(void) { return (ULONG)ndis_bind_successes; }
 ULONG anem_ndis_close_calls(void) { return (ULONG)ndis_close_calls; }

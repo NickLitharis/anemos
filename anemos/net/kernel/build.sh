@@ -28,6 +28,8 @@ EXPORTS=(
     RtlInitUnicodeString@8
     PsCreateSystemThread@28 PsTerminateSystemThread@4
     KeDelayExecutionThread@12 ZwClose@4
+    KeSetEvent@12 KeInitializeEvent@12 KeClearEvent@4
+    KeWaitForSingleObject@20
 )
 
 {
@@ -42,6 +44,10 @@ NDIS_EXPORTS=(
     NdisRegisterProtocol@16 NdisDeregisterProtocol@8
     NdisOpenAdapter@44 NdisCloseAdapter@8
     NdisReEnumerateProtocolBindings@4 NdisCompleteBindAdapter@12
+    NdisRequest@12 NdisAllocatePacketPool@16 NdisAllocateBufferPool@12
+    NdisAllocatePacket@12 NdisAllocateBuffer@20 NdisChainBufferAtBack@8
+    NdisSend@12 NdisGetFirstBufferFromPacket@20
+    NdisFreeBuffer@4 NdisFreePacket@4
 )
 {
     echo "LIBRARY ndis.sys"

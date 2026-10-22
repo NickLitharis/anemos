@@ -36,6 +36,8 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NDIS_REENUM \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_TRAFFIC \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 NTSTATUS anem_ndis_start(void);
 VOID anem_ndis_stop(void);
@@ -48,6 +50,7 @@ ULONG anem_ndis_open_error(void);
 ULONG anem_ndis_bind_open_status(void);
 ULONG anem_ndis_bind_open_error(void);
 ULONG anem_ndis_unbind_calls(void);
+void anem_ndis_traffic(ULONG out[4]);
 ULONG anem_ndis_bind_successes(void);
 ULONG anem_ndis_close_calls(void);
 ULONG anem_ndis_open(const WCHAR *path, ULONG length);
@@ -198,7 +201,15 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
     ULONG_PTR information = 0;
 
     (void)device;
-    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_REENUM) {
+    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_TRAFFIC) {
+        if (stack->Parameters.DeviceIoControl.OutputBufferLength < 4 * sizeof(ULONG)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+        } else {
+            anem_ndis_traffic((ULONG *)irp->AssociatedIrp.SystemBuffer);
+            information = 4 * sizeof(ULONG);
+            status = STATUS_SUCCESS;
+        }
+    } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_REENUM) {
         anem_ndis_reenumerate();
         status = STATUS_SUCCESS;
     } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_OPEN) {

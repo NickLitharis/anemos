@@ -51,6 +51,47 @@ typedef struct _NDIS_REQUEST NDIS_REQUEST, *PNDIS_REQUEST;
 typedef struct _NET_PNP_EVENT NET_PNP_EVENT, *PNET_PNP_EVENT;
 typedef struct _NDIS_BUFFER NDIS_BUFFER, *PNDIS_BUFFER;
 
+typedef ULONG NDIS_OID;
+typedef enum _NDIS_REQUEST_TYPE {
+    NdisRequestQueryInformation,
+    NdisRequestSetInformation,
+    NdisRequestQueryStatistics,
+    NdisRequestOpen,
+    NdisRequestClose,
+    NdisRequestSend,
+    NdisRequestTransferData,
+    NdisRequestReset,
+    NdisRequestGeneric1,
+} NDIS_REQUEST_TYPE;
+
+typedef struct _NDIS_REQUEST {
+    UCHAR MacReserved[4 * sizeof(PVOID)];
+    NDIS_REQUEST_TYPE RequestType;
+    union {
+        struct {
+            NDIS_OID Oid;
+            PVOID InformationBuffer;
+            UINT InformationBufferLength;
+            UINT BytesWritten;
+            UINT BytesNeeded;
+        } SET_INFORMATION;
+        struct {
+            NDIS_OID Oid;
+            PVOID InformationBuffer;
+            UINT InformationBufferLength;
+            UINT BytesRead;
+            UINT BytesNeeded;
+        } QUERY_INFORMATION;
+    } DATA;
+} NDIS_REQUEST, *PNDIS_REQUEST;
+
+#define OID_GEN_CURRENT_PACKET_FILTER 0x0001010EUL
+#define OID_802_3_CURRENT_ADDRESS 0x01010102UL
+#define NDIS_PACKET_TYPE_DIRECTED 0x00000001UL
+#define NDIS_PACKET_TYPE_MULTICAST 0x00000002UL
+#define NDIS_PACKET_TYPE_BROADCAST 0x00000004UL
+#define NDIS_PACKET_TYPE_PROMISCUOUS 0x00000020UL
+
 typedef VOID (NTAPI *OPEN_ADAPTER_COMPLETE_HANDLER)(NDIS_HANDLE, NDIS_STATUS, NDIS_STATUS);
 typedef VOID (NTAPI *CLOSE_ADAPTER_COMPLETE_HANDLER)(NDIS_HANDLE, NDIS_STATUS);
 typedef VOID (NTAPI *SEND_COMPLETE_HANDLER)(NDIS_HANDLE, PNDIS_PACKET, NDIS_STATUS);
@@ -119,5 +160,15 @@ VOID NTAPI NdisOpenAdapter(PNDIS_STATUS Status, PNDIS_STATUS OpenErrorStatus,
 VOID NTAPI NdisCloseAdapter(PNDIS_STATUS Status, NDIS_HANDLE BindingHandle);
 VOID NTAPI NdisReEnumerateProtocolBindings(NDIS_HANDLE ProtocolHandle);
 VOID NTAPI NdisCompleteBindAdapter(NDIS_HANDLE BindAdapterContext, NDIS_STATUS Status, NDIS_STATUS OpenStatus);
+NDIS_STATUS NTAPI NdisRequest(PNDIS_STATUS Status, NDIS_HANDLE BindingHandle, PNDIS_REQUEST Request);
+NDIS_STATUS NTAPI NdisAllocatePacketPool(PNDIS_STATUS Status, PNDIS_HANDLE PoolHandle, UINT NumberOfDescriptors, UINT ProtocolReservedLength);
+NDIS_STATUS NTAPI NdisAllocateBufferPool(PNDIS_STATUS Status, PNDIS_HANDLE PoolHandle, UINT NumberOfDescriptors);
+NDIS_STATUS NTAPI NdisAllocatePacket(PNDIS_STATUS Status, PNDIS_PACKET *Packet, NDIS_HANDLE PoolHandle);
+NDIS_STATUS NTAPI NdisAllocateBuffer(PNDIS_STATUS Status, PNDIS_BUFFER *Buffer, NDIS_HANDLE PoolHandle, PVOID VirtualAddress, UINT Length);
+VOID NTAPI NdisChainBufferAtBack(PNDIS_PACKET Packet, PNDIS_BUFFER Buffer);
+NDIS_STATUS NTAPI NdisSend(PNDIS_STATUS Status, NDIS_HANDLE BindingHandle, PNDIS_PACKET Packet);
+VOID NTAPI NdisGetFirstBufferFromPacket(PNDIS_PACKET Packet, PNDIS_BUFFER *FirstBuffer, PVOID *FirstBufferVA, PUINT FirstBufferLength, PUINT TotalBufferLength);
+VOID NTAPI NdisFreeBuffer(PNDIS_BUFFER Buffer);
+VOID NTAPI NdisFreePacket(PNDIS_PACKET Packet);
 
 #endif

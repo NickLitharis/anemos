@@ -11,3 +11,7 @@ EXPORTS
     PsTerminateSystemThread@4
     KeDelayExecutionThread@12
     ZwClose@4
+    KeSetEvent@12
+    KeInitializeEvent@12
+    KeClearEvent@4
+    KeWaitForSingleObject@20

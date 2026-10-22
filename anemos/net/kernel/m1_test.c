@@ -25,6 +25,8 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NDIS_REENUM \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_TRAFFIC \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x805, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 static unsigned long fnv1a(const char *text)
 {
@@ -487,6 +489,16 @@ int main(int argc, char **argv)
             report("ndis.unbinds", state[8]);
             report("ndis.bind_successes", state[9]);
             report("ndis.closes", state[10]);
+            {
+                unsigned long traffic[4] = {0, 0, 0, 0};
+                ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_TRAFFIC, NULL, 0,
+                                     traffic, sizeof traffic, &returned, NULL);
+                report("traffic.rc", ok ? 1u : 0u);
+                report("traffic.rx", traffic[0]);
+                report("traffic.tx", traffic[1]);
+                report("traffic.arp", traffic[2]);
+                report("traffic.bound", traffic[3]);
+            }
         }
         CloseHandle(device);
     }
