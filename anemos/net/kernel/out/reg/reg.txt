@@ -13,6 +13,18 @@ V HelpText type=1 size=72 Allows you to securely connect to a private network us
 K Interfaces
 V UpperRange type=1 size=8 noupper
 V LowerRange type=1 size=8 nolower
+K {3B2A9C21-8F4E-4D7A-9C61-2E5F0A7B1D33}
+V Description type=1 size=24 Anemos Network Protocol
+V ComponentId type=1 size=10 anemosnet
+V Characteristics type=4 size=4 000000a0
+V InfPath type=1 size=14 anemosnet.inf
+V InfSection type=1 size=25 AnemosNet.PrimaryInstall
+K Ndi
+V Service type=1 size=10 AnemosNet
+V HelpText type=1 size=23 Anemos protocol driver
+K Interfaces
+V UpperRange type=1 size=8 noupper
+V LowerRange type=1 size=6 ndis5
 K {61770326-0F07-46A4-8CE9-8E45B7DE5CDB}
 V Characteristics type=4 size=4 28000000
 V InfPath type=1 size=13 nettcpip.inf
@@ -139,10 +151,10 @@ V NTEContextList type=7 size=12 [0x00000002]
 V DhcpClassIdBin type=3 size=0 
 V DhcpServer type=1 size=16 192.168.103.254
 V Lease type=4 size=4 08070000
-V LeaseObtainedTime type=4 size=4 605cd96a
-V T1 type=4 size=4 e45fd96a
-V T2 type=4 size=4 8762d96a
-V LeaseTerminatesTime type=4 size=4 6863d96a
+V LeaseObtainedTime type=4 size=4 6269d96a
+V T1 type=4 size=4 e66cd96a
+V T2 type=4 size=4 896fd96a
+V LeaseTerminatesTime type=4 size=4 6a70d96a
 V IPAutoconfigurationAddress type=1 size=8 0.0.0.0
 V IPAutoconfigurationMask type=1 size=12 255.255.0.0
 V IPAutoconfigurationSeed type=4 size=4 00000000

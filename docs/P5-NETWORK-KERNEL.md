@@ -118,6 +118,21 @@ the AnemosNet component keys were removed, its service and driver file were
 deleted, and `ipconfig` in the guest still shows 192.168.103.129 with tcpip
 working.
 
+### netcfgx attempt
+
+A real NetTrans INF plus a manual `INetCfg` client reached netcfgx:
+`CoCreateInstance(CLSID_CNetCfg)` and `Initialize` succeed, and
+`QueryNetCfgClass(NetTrans, IID_INetCfgClassSetup)` succeeds. The write lock is
+the current blocker: `QueryInterface(IID_INetCfgLock)` returns S_OK, but
+`AcquireWriteLock` returns `NETCFG_E_ALREADY_INITIALIZED` (`0x8004A020`), which
+is what `Initialize` returns on a second call. The returned lock pointer is
+therefore resolving to the INetCfg vtable, not the lock vtable. `Install` then
+fails with `NETCFG_E_NO_WRITE_LOCK` (`0x8004A024`).
+
+Next: resolve the lock interface correctly (verify the INetCfgLock vtable and
+IID, or acquire the lock through the documented path), then call
+`INetCfgClassSetup::Install` and `Apply`.
+
 The NIC itself is ready, which removes the hardware blocker.
 
 ## Engineering constraints

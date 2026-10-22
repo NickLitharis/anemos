@@ -34,6 +34,8 @@
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_ANEMOS_NDIS_OPEN \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_ANEMOS_NDIS_REENUM \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x804, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 NTSTATUS anem_ndis_start(void);
 VOID anem_ndis_stop(void);
@@ -44,6 +46,7 @@ ULONG anem_ndis_bind_calls(void);
 ULONG anem_ndis_open_status(void);
 ULONG anem_ndis_open_error(void);
 ULONG anem_ndis_open(const WCHAR *path, ULONG length);
+VOID anem_ndis_reenumerate(void);
 
 /* lwIP has no OS clock under NO_SYS. KeQueryInterruptTime counts 100 ns
  * units; shift and divide in 32 bits so no libgcc helper is needed. */
@@ -190,7 +193,10 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
     ULONG_PTR information = 0;
 
     (void)device;
-    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_OPEN) {
+    if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_REENUM) {
+        anem_ndis_reenumerate();
+        status = STATUS_SUCCESS;
+    } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_OPEN) {
         ULONG length = stack->Parameters.DeviceIoControl.InputBufferLength;
         if (length < sizeof(WCHAR) || length > 512) {
             status = STATUS_INVALID_PARAMETER;

@@ -79,6 +79,8 @@ int main(int argc, char **argv)
         "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Linkage",
         "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Ndi\\Interfaces",
         "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces",
+        "SYSTEM\\CurrentControlSet\\Services\\PCnet\\Linkage",
+        "SYSTEM\\CurrentControlSet\\Services\\PCnet\\Ndi\\Interfaces",
     };
 
     if (argc > 1 && argv[1][0] != '\0') {

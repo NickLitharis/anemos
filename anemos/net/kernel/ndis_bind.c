@@ -217,6 +217,13 @@ ULONG anem_ndis_error(void)
 
 ULONG anem_ndis_bind_calls(void) { return (ULONG)ndis_bind_calls; }
 
+VOID anem_ndis_reenumerate(void)
+{
+    if (ndis_protocol != NULL) {
+        NdisReEnumerateProtocolBindings(ndis_protocol);
+    }
+}
+
 /* NDIS did not offer existing adapters to a demand-started protocol, so the
  * test supplies the adapter's device name (\Device\{GUID}) and we open it
  * directly, the same call BindAdapter would make. */
