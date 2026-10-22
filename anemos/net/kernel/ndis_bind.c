@@ -16,6 +16,11 @@ static volatile LONG ndis_bind_error;
 static volatile LONG ndis_bind_calls;
 static volatile LONG ndis_open_status;
 static volatile LONG ndis_open_error;
+static volatile LONG ndis_bind_open_status;
+static volatile LONG ndis_bind_open_error;
+static volatile LONG ndis_unbind_calls;
+static volatile LONG ndis_bind_successes;
+static volatile LONG ndis_close_calls;
 static KSPIN_LOCK ndis_lock;
 
 static VOID NTAPI open_complete(NDIS_HANDLE context, NDIS_STATUS status,
@@ -32,6 +37,7 @@ static VOID NTAPI close_complete(NDIS_HANDLE context, NDIS_STATUS status)
 {
     (void)context;
     (void)status;
+    InterlockedIncrement(&ndis_close_calls);
     InterlockedExchange(&ndis_bound, 0);
 }
 
@@ -114,22 +120,27 @@ static NDIS_STATUS NTAPI bind_adapter(PNDIS_STATUS status,
     NDIS_MEDIUM mediums[1] = { NdisMedium802_3 };
     UINT selected = 0;
     NDIS_STATUS open_error = NDIS_STATUS_SUCCESS;
+    NDIS_STATUS open_status = NDIS_STATUS_FAILURE;
 
     (void)system_specific1;
     (void)system_specific2;
     InterlockedIncrement(&ndis_bind_calls);
-    NdisOpenAdapter(status, &open_error, &ndis_binding,
+    NdisOpenAdapter(&open_status, &open_error, &ndis_binding,
                     &selected, mediums, 1, bind_context, NULL,
                     device_name, 0, NULL);
     ndis_medium = mediums[0];
-    InterlockedExchange(&ndis_open_status, (LONG)*status);
+    InterlockedExchange(&ndis_open_status, (LONG)open_status);
     InterlockedExchange(&ndis_open_error, (LONG)open_error);
-    if (*status == NDIS_STATUS_SUCCESS) {
+    InterlockedExchange(&ndis_bind_open_status, (LONG)open_status);
+    InterlockedExchange(&ndis_bind_open_error, (LONG)open_error);
+    if (open_status == NDIS_STATUS_SUCCESS) {
+        InterlockedIncrement(&ndis_bind_successes);
         InterlockedExchange(&ndis_bound, 1);
-    } else if (*status != NDIS_STATUS_PENDING) {
-        InterlockedExchange(&ndis_bind_error, (LONG)*status);
+    } else if (open_status != NDIS_STATUS_PENDING) {
+        InterlockedExchange(&ndis_bind_error, (LONG)open_status);
     }
-    return *status;
+    *status = open_status;
+    return open_status;
 }
 
 static VOID NTAPI unbind_adapter(NDIS_HANDLE unbind_context,
@@ -139,6 +150,7 @@ static VOID NTAPI unbind_adapter(NDIS_HANDLE unbind_context,
 
     (void)unbind_context;
     (void)protocol_binding_context;
+    InterlockedIncrement(&ndis_unbind_calls);
     if (ndis_binding != NULL) {
         NdisCloseAdapter(&status, ndis_binding);
         ndis_binding = NULL;
@@ -253,3 +265,8 @@ ULONG anem_ndis_open(const WCHAR *path, ULONG length)
 }
 ULONG anem_ndis_open_status(void) { return (ULONG)ndis_open_status; }
 ULONG anem_ndis_open_error(void) { return (ULONG)ndis_open_error; }
+ULONG anem_ndis_bind_open_status(void) { return (ULONG)ndis_bind_open_status; }
+ULONG anem_ndis_bind_open_error(void) { return (ULONG)ndis_bind_open_error; }
+ULONG anem_ndis_unbind_calls(void) { return (ULONG)ndis_unbind_calls; }
+ULONG anem_ndis_bind_successes(void) { return (ULONG)ndis_bind_successes; }
+ULONG anem_ndis_close_calls(void) { return (ULONG)ndis_close_calls; }

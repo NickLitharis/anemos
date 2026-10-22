@@ -6,6 +6,7 @@
  */
 #include <windows.h>
 #include <objbase.h>
+#include <setupapi.h>
 #include <stdio.h>
 #include <io.h>
 #include <string.h>
@@ -124,7 +125,7 @@ static const char inf_text[] =
     "StartType=1\r\n"
     "ErrorControl=1\r\n"
     "ServiceBinary=%12%\\anemosnet.sys\r\n"
-    "LoadOrderGroup=NDIS\r\n"
+    "LoadOrderGroup=TDI\r\n"
     "[Strings]\r\n"
     "P=\"Anemos\"\r\n"
     "M=\"Anemos\"\r\n"
@@ -146,22 +147,24 @@ int main(int argc, char **argv)
     if (argc > 1 && argv[1][0]) record = fopen(argv[1], "w");
     report("driver.write", write_file(DRIVER_PATH, driver_blob, (DWORD)sizeof driver_blob));
     report("inf.write", write_file(INF_PATH, inf_text, (DWORD)sizeof inf_text - 1));
+    report("inf.copy", SetupCopyOEMInfA(INF_PATH, NULL, SPOST_PATH, 0,
+                                        NULL, 0, NULL, NULL) ? 1 : 0);
 
     hr = CoInitialize(NULL);
     report("com.init", hr);
     hr = CoCreateInstance(&clsid_cnetcfg, NULL, CLSCTX_ALL, &iid_inetcfg, (void **)&netcfg);
     report("netcfg.create", hr);
     if (FAILED(hr)) goto done;
-    hr = netcfg->lpVtbl->Initialize(netcfg, NULL);
-    report("netcfg.init", hr);
-    if (FAILED(hr)) goto done;
     hr = netcfg->lpVtbl->QueryInterface(netcfg, &iid_inetcfg_lock, (void **)&lock);
     report("netcfg.lock_qi", (long)hr);
     if (SUCCEEDED(hr)) {
-        hr = lock->lpVtbl->AcquireWriteLock(lock, 5000, L"AnemosNet", &lock_desc);
+        hr = lock->lpVtbl->AcquireWriteLock(lock, 15000, L"AnemosNet", &lock_desc);
         report("netcfg.lock", (long)hr);
         if (lock_desc != NULL) CoTaskMemFree(lock_desc);
     }
+    hr = netcfg->lpVtbl->Initialize(netcfg, NULL);
+    report("netcfg.init", (long)hr);
+    if (FAILED(hr)) goto done;
     hr = netcfg->lpVtbl->QueryNetCfgClass(netcfg, &guid_nettrans,
                                           &iid_inetcfg_classsetup,
                                           (void **)&setup);
@@ -169,7 +172,7 @@ int main(int argc, char **argv)
     memset(&obo, 0, sizeof obo);
     obo.Type = OBO_USER;
     if (SUCCEEDED(hr)) {
-        hr = setup->lpVtbl->Install(setup, L"anemosnet.inf", &obo, 0, 0,
+        hr = setup->lpVtbl->Install(setup, L"ms_anemosnet", &obo, 0, 0,
                                     NULL, NULL, &component);
         report("netcfg.install", (long)hr);
     }
@@ -185,6 +188,30 @@ int main(int argc, char **argv)
     netcfg->lpVtbl->Release(netcfg);
 
 done:
+    {
+        HKEY skey = NULL;
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                "SYSTEM\\CurrentControlSet\\Services\\AnemosNet",
+                0, KEY_ALL_ACCESS, &skey) == ERROR_SUCCESS) {
+            DWORD start = 1;
+            (void)RegSetValueExA(skey, "Group", 0, REG_SZ,
+                                 (const BYTE *)"TDI", 4);
+            (void)RegSetValueExA(skey, "Start", 0, REG_DWORD,
+                                 (const BYTE *)&start, sizeof start);
+            RegCloseKey(skey);
+        }
+    }
+    {
+        SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+        SC_HANDLE svc = scm ? OpenServiceA(scm, "AnemosNet", SERVICE_ALL_ACCESS) : NULL;
+        report("service.open", svc != NULL);
+        if (svc != NULL) {
+            report("service.start", StartServiceA(svc, 0, NULL) ? 1 : 0);
+            CloseServiceHandle(svc);
+        }
+        if (scm != NULL) CloseServiceHandle(scm);
+    }
+    Sleep(1000);
     device = CreateFileA("\\\\.\\AnemosNet", GENERIC_READ | GENERIC_WRITE, 0,
                          NULL, OPEN_EXISTING, 0, NULL);
     report("device.open", device != INVALID_HANDLE_VALUE);

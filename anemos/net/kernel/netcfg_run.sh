@@ -12,7 +12,7 @@ mkdir -p "$OUT"; export PATH="$LLVM:$PATH"
 "$HERE/m1_build.sh" >"$OUT/build.log" 2>&1 || die "driver build failed"
 i686-w64-mingw32-clang -std=c23 -Oz -Wall -Wextra -Werror \
     -I "$HERE/out" -o "$HERE/out/netcfg_install.exe" "$HERE/netcfg_install.c" \
-    -lole32 -ladvapi32 -Xlinker /subsystem:console,5.01 || die "netcfg build failed"
+    -lole32 -ladvapi32 -lsetupapi -Xlinker /subsystem:console,5.01 || die "netcfg build failed"
 BAK="$OUT/victim.bin"
 restore() { [ -f "$BAK" ] && { python3 "$NTFS" "$DISK" put "$VICTIM" "$BAK" || die restore; rm -f "$BAK"; }; }
 [ -z "$(vmrun -T ws list | tail -n +2)" ] || die "VM running"

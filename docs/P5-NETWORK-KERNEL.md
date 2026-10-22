@@ -129,9 +129,24 @@ is what `Initialize` returns on a second call. The returned lock pointer is
 therefore resolving to the INetCfg vtable, not the lock vtable. `Install` then
 fails with `NETCFG_E_NO_WRITE_LOCK` (`0x8004A024`).
 
-Next: resolve the lock interface correctly (verify the INetCfgLock vtable and
-IID, or acquire the lock through the documented path), then call
-`INetCfgClassSetup::Install` and `Apply`.
+That was resolved: XP takes the write lock **before** `Initialize`. With the
+correct order, `AcquireWriteLock`, `Initialize`, `QueryNetCfgClass`,
+`Install("ms_anemosnet")` and `Apply()` all succeed, after
+`SetupCopyOEMInf` registers the INF. The component is really installed.
+
+The first `Install` failure was `SPAPI_E_NO_DRIVER_SELECTED` because
+`INetCfgClassSetup::Install` takes the **component id**, not the INF filename.
+
+After a reboot, NDIS calls `ProtocolBindAdapter` (`ndis.calls` becomes 1), so
+the installation path is correct. The bind itself still fails:
+`NdisOpenAdapter` returns `0xC0010002` (`NDIS_STATUS_CLOSING`) even though the
+adapter is up. Next: treat that as a transient, return `NDIS_STATUS_PENDING`
+and complete later with `NdisCompleteBindAdapter` after a short delay, or find
+why NDIS reports the binding as closing.
+
+A stale-image trap cost several runs: the query phase boots the **installed**
+driver, so it must reinstall the newly built image (netcfg does) before
+testing; counters from a rebuild mean nothing until the image is replaced.
 
 The NIC itself is ready, which removes the hardware blocker.
 

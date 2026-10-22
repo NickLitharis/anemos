@@ -45,6 +45,11 @@ ULONG anem_ndis_error(void);
 ULONG anem_ndis_bind_calls(void);
 ULONG anem_ndis_open_status(void);
 ULONG anem_ndis_open_error(void);
+ULONG anem_ndis_bind_open_status(void);
+ULONG anem_ndis_bind_open_error(void);
+ULONG anem_ndis_unbind_calls(void);
+ULONG anem_ndis_bind_successes(void);
+ULONG anem_ndis_close_calls(void);
 ULONG anem_ndis_open(const WCHAR *path, ULONG length);
 VOID anem_ndis_reenumerate(void);
 
@@ -210,7 +215,7 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
             status = STATUS_SUCCESS;
         }
     } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_NDIS_STATE) {
-        if (stack->Parameters.DeviceIoControl.OutputBufferLength < 6 * sizeof(ULONG)) {
+        if (stack->Parameters.DeviceIoControl.OutputBufferLength < 11 * sizeof(ULONG)) {
             status = STATUS_BUFFER_TOO_SMALL;
         } else {
             ULONG *out = irp->AssociatedIrp.SystemBuffer;
@@ -220,7 +225,12 @@ static NTSTATUS NTAPI dispatch_control(PDEVICE_OBJECT device, PIRP irp)
             out[3] = anem_ndis_bind_calls();
             out[4] = anem_ndis_open_status();
             out[5] = anem_ndis_open_error();
-            information = 6 * sizeof(ULONG);
+            out[6] = anem_ndis_bind_open_status();
+            out[7] = anem_ndis_bind_open_error();
+            out[8] = anem_ndis_unbind_calls();
+            out[9] = anem_ndis_bind_successes();
+            out[10] = anem_ndis_close_calls();
+            information = 11 * sizeof(ULONG);
             status = STATUS_SUCCESS;
         }
     } else if (stack->Parameters.DeviceIoControl.IoControlCode == IOCTL_ANEMOS_PING
