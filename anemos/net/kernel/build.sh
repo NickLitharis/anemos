@@ -26,6 +26,8 @@ EXPORTS=(
     IoCreateSymbolicLink@8 IoDeleteSymbolicLink@4
     MmGetSystemRoutineAddress@4 KeQueryInterruptTime@0
     RtlInitUnicodeString@8
+    PsCreateSystemThread@28 PsTerminateSystemThread@4
+    KeDelayExecutionThread@12 ZwClose@4
 )
 
 {
@@ -39,7 +41,7 @@ EXPORTS=(
 NDIS_EXPORTS=(
     NdisRegisterProtocol@16 NdisDeregisterProtocol@8
     NdisOpenAdapter@44 NdisCloseAdapter@8
-    NdisReEnumerateProtocolBindings@4
+    NdisReEnumerateProtocolBindings@4 NdisCompleteBindAdapter@12
 )
 {
     echo "LIBRARY ndis.sys"

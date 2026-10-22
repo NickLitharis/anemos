@@ -380,6 +380,18 @@ int main(int argc, char **argv)
         }
     }
     }
+    if (!install_mode) {
+        SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+        SC_HANDLE svc = scm ? OpenServiceA(scm, "AnemosNet", SERVICE_ALL_ACCESS) : NULL;
+        report("query.service_open", svc != NULL ? 1u : 0u);
+        if (svc != NULL) {
+            report("query.service_start", StartServiceA(svc, 0, NULL) ? 1u : 0u);
+            report("query.service_start_err", (unsigned long)GetLastError());
+            CloseServiceHandle(svc);
+        }
+        if (scm != NULL) CloseServiceHandle(scm);
+        Sleep(1000);
+    }
     device = CreateFileA("\\\\.\\AnemosNet", GENERIC_READ | GENERIC_WRITE,
                          0, NULL, OPEN_EXISTING, 0, NULL);
     if (device == INVALID_HANDLE_VALUE) {
@@ -454,7 +466,7 @@ int main(int argc, char **argv)
                 report("ndis.open_status", opened);
             }
 
-            for (attempt = 0; attempt < 25; attempt++) {
+            for (attempt = 0; attempt < 75; attempt++) {
                 ok = DeviceIoControl(device, IOCTL_ANEMOS_NDIS_STATE, NULL, 0,
                                      state, sizeof state, &returned, NULL);
                 if (ok && state[0] != 0) {

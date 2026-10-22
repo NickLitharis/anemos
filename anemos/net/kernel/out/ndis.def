@@ -5,3 +5,4 @@ EXPORTS
     NdisOpenAdapter@44
     NdisCloseAdapter@8
     NdisReEnumerateProtocolBindings@4
+    NdisCompleteBindAdapter@12

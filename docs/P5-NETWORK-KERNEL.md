@@ -36,7 +36,7 @@ TDI is the XP-era interface. WSK arrived with Vista and is not the target.
 |---|---|---|
 | K1 | Loadable driver skeleton: `DriverEntry`, device, symbolic link, IOCTL ping, unload | ✅ **passed 2026-10-22**: service starts, `\\.\AnemosNet` opens, the ping IOCTL returns `ANEM`, and the service stops; certificate in `anemos/net/kernel/xp/` |
 | K2 | lwIP in kernel, `NO_SYS`, kernel clock and an internal netif | ✅ **passed 2026-10-22**: the driver loads, a UDP datagram crosses lwIP's loopback netif in kernel context, and the returned FNV-1a checksum equals an independent user-mode implementation (`254371596`). Certificate: `anemos/net/kernel/xp/anemos-k2.txt` |
-| K3 | NDIS protocol driver: bind, receive, send frames | ◐ **in progress 2026-10-22**: the NIC now has XP's own AMD PCnet driver (`netamd2.inf`, installed with `SetupDi`), and our NDIS 5.1 protocol registers. `BindAdapter` is not called, so `NdisOpenAdapter` is not yet reached; see K3 facts. |
+| K3 | NDIS protocol driver: bind, receive, send frames | ◐ **binding passed 2026-10-22**: netcfg installs the protocol as a NetTrans component, NDIS calls `ProtocolBindAdapter`, and `NdisOpenAdapter` succeeds (`ndis.bound 1`, `bind_successes 1`). Frame receive/send is the next slice. |
 | K4 | TDI surface compatible with `afd.sys` | `ping`, then `telnet`/`ftp`/HTTP through Winsock |
 | K5 | Replace `tcpip.sys` on the test image, run P4's Winsock certificate against the new stack | 47/47 or documented differences; DHCP and DNS work |
 | K6 | Throughput | not worse than XP's stack on the same VM |
@@ -147,6 +147,18 @@ why NDIS reports the binding as closing.
 A stale-image trap cost several runs: the query phase boots the **installed**
 driver, so it must reinstall the newly built image (netcfg does) before
 testing; counters from a rebuild mean nothing until the image is replaced.
+
+### Binding result
+
+The last bug was the protocol handle. `ProtocolBindAdapter`'s `BindContext` is
+not the handle `NdisOpenAdapter` wants as `NdisProtocolHandle`; passing the
+handle returned by `NdisRegisterProtocol` makes the open succeed. The retry
+path is kept for the transient closing state, but at boot the first open now
+succeeds: `ndis.bound 1`, `ndis.bind_successes 1`, `ndis.calls 1`,
+`ndis.attempts 0`. Certificate: `anemos/net/kernel/xp/anemos-k3-bind.txt`.
+
+Frames are next: receive callback into lwIP, and an Ethernet netif backed by
+`NdisSend`/`NdisSendPackets`.
 
 The NIC itself is ready, which removes the hardware blocker.
 
