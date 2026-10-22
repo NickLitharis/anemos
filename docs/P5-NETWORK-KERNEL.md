@@ -36,10 +36,54 @@ TDI is the XP-era interface. WSK arrived with Vista and is not the target.
 |---|---|---|
 | K1 | Loadable driver skeleton: `DriverEntry`, device, symbolic link, IOCTL ping, unload | ✅ **passed 2026-10-22**: service starts, `\\.\AnemosNet` opens, the ping IOCTL returns `ANEM`, and the service stops; certificate in `anemos/net/kernel/xp/` |
 | K2 | lwIP in kernel, `NO_SYS`, kernel clock and an internal netif | ✅ **passed 2026-10-22**: the driver loads, a UDP datagram crosses lwIP's loopback netif in kernel context, and the returned FNV-1a checksum equals an independent user-mode implementation (`254371596`). Certificate: `anemos/net/kernel/xp/anemos-k2.txt` |
-| K3 | NDIS protocol driver: bind, receive, send frames | ◐ **binding passed 2026-10-22**: netcfg installs the protocol as a NetTrans component, NDIS calls `ProtocolBindAdapter`, and `NdisOpenAdapter` succeeds (`ndis.bound 1`, `bind_successes 1`). Frame receive/send is the next slice. |
+| K3 | NDIS protocol driver: bind, receive, send frames | ◐ **binding passed 2026-10-22**; frame receive/send is in progress (see Current state) |
 | K4 | TDI surface compatible with `afd.sys` | `ping`, then `telnet`/`ftp`/HTTP through Winsock |
 | K5 | Replace `tcpip.sys` on the test image, run P4's Winsock certificate against the new stack | 47/47 or documented differences; DHCP and DNS work |
 | K6 | Throughput | not worse than XP's stack on the same VM |
+
+## Current state (2026-10-22, paused)
+
+| Piece | State | Evidence |
+|---|---|---|
+| K1 loadable driver | ✅ | `anemos/net/kernel/xp/anemos-m1.txt`: loads, IOCTL ping `ANEM`, unloads |
+| K2 lwIP in kernel | ✅ | `anemos/net/kernel/xp/anemos-k2.txt`: in-kernel loopback checksum `254371596` |
+| K3 netcfg install | ✅ | NetTrans component installed through `INetCfg`; `Install` + `Apply` succeed |
+| K3 NDIS binding | ✅ | `anemos/net/kernel/xp/anemos-k3-bind.txt`: `ndis.bound 1`, `bind_successes 1`, `calls 1` |
+| K3 frames (RX/TX) | ◐ in progress | code written, build currently fails on missing kernel imports |
+| K4 TDI surface | not started | |
+| K5 replace `tcpip.sys` | not started | |
+
+**Work in progress (not committed / not deployed).** The working tree has the
+first frame path: NDIS packet-filter set, MAC query, a `ProtocolReceivePacket`
+handler that counts received frames and ARP replies, and an ARP-request
+transmit built by hand and sent with `NdisSend`. `m1_test` calls a new
+`IOCTL_ANEMOS_NDIS_TRAFFIC` (0x805) and reports `traffic.rx`, `traffic.tx`,
+`traffic.arp`, `traffic.bound`.
+
+The build stops at the linker:
+
+```
+undefined symbol: __declspec(dllimport) _KeSetEvent@12
+undefined symbol: __declspec(dllimport) _KeInitializeEvent@12
+undefined symbol: __declspec(dllimport) _KeClearEvent@4
+undefined symbol: __declspec(dllimport) _KeWaitForSingleObject@20
+```
+
+These are the event helpers used to make `NdisRequest` synchronous (MAC query
+and packet-filter set). The next change is to add those four decorated names
+to the **ntoskrnl** import list in `anemos/net/kernel/build.sh`, then rebuild,
+reinstall through netcfg, reboot, and check `traffic.tx >= 1` and
+`traffic.rx > 0` (an ARP reply or tcpip broadcast traffic).
+
+**Guest state.** The VM NIC is AMD PCnet (`vlance`). XP's own `pcnetpci5.sys`
+and `netamd2.inf` are installed. The AnemosNet service and NetTrans component
+are installed and bind at boot. The installed driver image is from the last
+successful K3-binding build; the frame-path build is not installed.
+
+**Test entry points.** `anemos/net/kernel/m1_run.sh` (modes `install`,
+`query`, `cleanup`), `anemos/net/kernel/netcfg_run.sh` (INF + `INetCfg`
+install), `anemos/net/kernel/nic_run.sh` (in-box NIC driver), and
+`anemos/net/kernel/reg_dump_run.sh` (read-only registry inventory).
 
 ## K1 facts (do not rediscover)
 
