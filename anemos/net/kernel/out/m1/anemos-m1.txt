@@ -3,6 +3,8 @@ service.manager 1
 control.beep.start 0
 control.beep.start.err 183
 service.create 1
+ndis.bind_name \Device\{FCEC3991-0779-45A9-A731-C7193BB1DB87}
+ndis.linkage 1
 service.start 1
 device.open 1
 ioctl.ping 1

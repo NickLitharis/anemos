@@ -86,14 +86,21 @@ the guest and are now encoded in `anemos/net/kernel/`:
   `192.168.103.129` with MAC `00:0c:29:e0:23:b7`. tcpip and Winsock use it.
 - Our driver registers an NDIS 5.1 protocol successfully, but NDIS never calls
   `ProtocolBindAdapter`. Registering after boot does not join the binding
-  engine. NDIS 5 binding is driven by the `Linkage` registry values that an INF
-  normally writes, not by `NdisRegisterProtocol` alone.
+  engine.
+- The protocol's `Ndi\Interfaces` keys were added (`UpperRange=noupper`,
+  `LowerRange=ndis5`, matching the adapter's `UpperRange=ndis5`), and
+  `Linkage\Bind` was set to `\Device\{NetCfgInstanceId}` before the driver
+  started. The NIC was then restarted through `SetupDi` property change.
+  NDIS still did not call the bind handler in the same boot.
 - Opening the adapter directly by `\Device\{NetCfgInstanceId}` returns
-  `0xC0010006` (`NDIS_STATUS_OPEN_FAILED`), so the device name or the missing
-  binding entry is not sufficient.
+  `0xC0010006` (`NDIS_STATUS_OPEN_FAILED`).
 
-Next: add the protocol's `Linkage` keys (or install through an INF with
-`AddReg`), or register the protocol at system start before miniports bind.
+Conclusion: NDIS 5 builds its binding list during boot-time PnP enumeration.
+A protocol that registers later, even with correct `Ndi` and `Linkage` keys,
+is not added to that list. The next step is to install the driver as a
+system-start service (group `NDIS`) and reboot, then query the binding; or to
+install it through a proper INF so PnP enumerates it.
+
 The NIC itself is ready, which removes the hardware blocker.
 
 ## Engineering constraints
