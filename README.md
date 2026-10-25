@@ -23,40 +23,32 @@ has no external specification.
 ## Status
 
 The method is proven and the first replacements are written and gated. There is
-**no Anemos kernel yet**; there is a verified way to build and judge one, and a
-growing set of subsystems that already pass it.
+**no Anemos kernel yet**: there is a verified way to build and judge one, and a growing
+set of subsystems that already pass it.
 
-| Capability | State | Evidence |
-|---|---|---|
-| Build XP's kernel from source | ✅ 59 libraries, 1,464 exports | `docs/KERNEL-BUILDS.md` |
-| Boot it into a full XP install | ✅ Luna desktop, responsive `cmd` | `docs/KERNEL-BOOTS-XP.md` |
-| Build 21/23 kernel subsystems for **AMD64** | ✅ | `docs/X64-STATUS.md` |
-| **G1 — ABI compatibility proof** | ✅ 15/15 | `docs/G1-ABI-PROOF.md` |
-| **G2 — conformance runner** | ✅ IDENTICAL on the negative control | `docs/G2-CONFORMANCE-RUNNER.md` |
-| **P1 — pure algorithms** | ✅ 6/6 units | `anemos/{md5,sha1,base64,crc32,nls,statusdos}/` |
-| **P2 — DNS codec + client** | ✅ 24/24 | `docs/P2-DNS.md`, `docs/P2-DNS-CLIENT.md` |
-| **P2 — DHCP codec + client** | ✅ 24/24 | `docs/P2-DHCP.md`, `docs/P2-DHCP-CLIENT.md` |
-| **P3 — crypto engine** | ✅ OpenSSL 3.5.7 for i686 Windows, 7/7 KATs + XP import gate | `docs/P3-CRYPTO.md` |
-| **P3.1 — CSP SPI skeleton** | ✅ 11/11, 23 + 2 exports | `docs/P3-CSP-SPI.md` |
-| **P3.2a — symmetric keys + AES** | ✅ AES-128/192/256, CBC/ECB, PLAINTEXTKEYBLOB, SPI KATs | `docs/P3-CSP-SPI.md` |
-| **P3.2b — streaming cipher** | ✅ multi-call CPEncrypt/CPDecrypt, block buffering | `docs/P3-CSP-SPI.md` |
-| **P3.3 — RSA keys + sign/verify** | ✅ 1024-bit, PUBLIC/PRIVATEKEYBLOB, PKCS#1 v1.5 | `docs/P3-CSP-SPI.md` |
-| **P3.5 — CryptoAPI plumbing** | ✅ 7/7 under Wine; XP still verifies the image signature | `docs/P3-CSP-SPI.md` |
-| **P3.4 — XP guest run** | ✅ 163/163, identical to the host run | `docs/P3-CSP-SPI.md` |
-| **P4 — network stack** | 🔄 P4.1-P4.4 gated, P4.6 XP-conformant (47/47), P4.5 seam + loopback, lwIP (BSD-3) built with a loopback smoke test; MIT kept, ReactOS rejected | `docs/P4-TRANSPORT-DECISION.md` |
-| P5 — kernel proper | ❌ out of scope | see `PLAN.md` |
+- **P0–P3 complete.** Both gates passed (G1 ABI, G2 conformance), P1's algorithms and
+  the exhaustive `STATUS→DOS` map are proved, P2's DNS and DHCP units are gated against
+  independent implementations, and P3's crypto engine and CSP SPI surface run
+  identically in the host harness and inside XP.
+- **P4 written, gated where it can be.** XP Winsock conformance is 47/47, the socket
+  core and resolver are proved against models, and lwIP (BSD-3) is the adopted stack;
+  the transport provider is the open decision.
+- **Kernel network driver in progress.** K1 (loadable driver) and K2 (lwIP in the
+  kernel) passed in the guest, K3 binds to NDIS, and its frame path builds with the
+  guest run pending.
 
-**P2 is complete.** The DNS and DHCP codecs, their clients, and a deterministic
-DHCP state machine are written, documented, and proved against independent
-second implementations. P3 has started: the crypto engine is cross-built for the
-destination ABI, and the CryptoSPI surface is exported and exercised.
+Two things sit outside that list. XP's own kernel can be built from source and boots a
+full install — that is Microsoft's code, used as the oracle, not the deliverable. And
+P5's kernel proper is out of scope, with the network transport as its only exception.
+
+Per-milestone detail, dates and evidence are in **`CHANGELOG.md`**; `PLAN.md` is the
+authoritative statement of scope and measured status.
 
 ## Phase tags
 
-Each completed phase is an annotated git tag — `phase-p0`, `phase-p1`,
-`phase-p2`, `phase-p3.0`, `phase-p3.1`, `phase-p3.1-xp` — so a phase can be
-reviewed, diffed or pushed on its own. See `PHASES.md` for the boundaries and
-what belongs to each phase.
+Each completed phase is an annotated git tag — `phase-p0` through `phase-p3.4` — so a
+phase can be reviewed, diffed or pushed on its own. `CHANGELOG.md` records what each tag
+contains and when; `PHASES.md` defines the boundaries and what belongs to each phase.
 
 ## How correctness is established
 
@@ -140,15 +132,17 @@ not published here.
   every route fails with `NTE_BAD_SIGNATURE`, so that path is documented as
   unclaimable rather than patched.
 - **P4 — network stack.** ~288 C files; the largest replacement, deliberately
-  last. Started with the host-testable Winsock address layer (P4.1); the
-  stack architecture — lwIP-style rewrite or ReactOS behind TDI/WSK — is the
-  next open decision (`docs/P4-NETWORK.md`).
+  last. Started with the host-testable Winsock address layer (P4.1). The
+  architecture question is settled — lwIP (BSD-3) was adopted and ReactOS
+  rejected — and the remaining choice is the transport provider, blocked on the
+  P5 scope decision (`docs/P4-TRANSPORT-DECISION.md`).
 - **P5 — the kernel proper, with one exception.** The network stack now needs a
   kernel driver and is in scope (`docs/P5-NETWORK-KERNEL.md`); its first
   loadable driver passed in XP on 2026-10-22, lwIP runs inside it with an
   in-kernel loopback self-test, and the protocol is installed through netcfg
-  and bound by NDIS. The frame path (receive plus ARP transmit) is the
-  current work in progress. Memory manager,
+  and bound by NDIS. The frame path (receive plus ARP transmit) builds as a
+  68,608-byte image with its kernel imports resolved; running it in the guest
+  is the next step. Memory manager,
   object manager, scheduler, I/O:
   ~60M lines with no external specification and no way to differential-test
   bit-identical internal state. Out of scope. The honest options are adopting
@@ -180,6 +174,7 @@ All are documented rather than discovered late:
 ## Read next
 
 - **`PLAN.md`** — the authoritative plan and the measured state behind every ✅
+- **`CHANGELOG.md`** — what each phase tag contains, with dates
 - `PHASES.md` — phase boundaries, tags, and which code belongs to each phase
 - `SCOPE.md` / `NOTICE.md` / `LICENSE` — what is ours, what is Microsoft's
 - `docs/OS-CODING-RULES.md` — 17 rules, each naming the failure it prevents

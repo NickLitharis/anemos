@@ -49,31 +49,20 @@ TDI is the XP-era interface. WSK arrived with Vista and is not the target.
 | K2 lwIP in kernel | ✅ | `anemos/net/kernel/xp/anemos-k2.txt`: in-kernel loopback checksum `254371596` |
 | K3 netcfg install | ✅ | NetTrans component installed through `INetCfg`; `Install` + `Apply` succeed |
 | K3 NDIS binding | ✅ | `anemos/net/kernel/xp/anemos-k3-bind.txt`: `ndis.bound 1`, `bind_successes 1`, `calls 1` |
-| K3 frames (RX/TX) | ◐ in progress | code written, build currently fails on missing kernel imports |
+| K3 frames (RX/TX) | ◐ builds, guest run pending | `anemos/net/kernel/build.sh` produces a 68,608-byte `anemosnet.sys`; the four `Ke*Event` imports resolve from `ntoskrnl` (checked in the PE). Guest verification of `traffic.tx`/`traffic.rx` is the remaining step |
 | K4 TDI surface | not started | |
 | K5 replace `tcpip.sys` | not started | |
 
-**Work in progress (not committed / not deployed).** The working tree has the
-first frame path: NDIS packet-filter set, MAC query, a `ProtocolReceivePacket`
-handler that counts received frames and ARP replies, and an ARP-request
-transmit built by hand and sent with `NdisSend`. `m1_test` calls a new
-`IOCTL_ANEMOS_NDIS_TRAFFIC` (0x805) and reports `traffic.rx`, `traffic.tx`,
-`traffic.arp`, `traffic.bound`.
+**Frame path: built, not yet exercised in the guest.** NDIS packet-filter set, MAC
+query, a `ProtocolReceivePacket` handler that counts received frames and ARP replies,
+and an ARP-request transmit built by hand and sent with `NdisSend` are committed. The
+four `Ke*Event` imports were added to the ntoskrnl import list, so the build no longer
+stops at the linker; the produced image imports `KeSetEvent`, `KeInitializeEvent`,
+`KeClearEvent` and `KeWaitForSingleObject` from `ntoskrnl.exe` and links at 68,608 bytes.
 
-The build stops at the linker:
-
-```
-undefined symbol: __declspec(dllimport) _KeSetEvent@12
-undefined symbol: __declspec(dllimport) _KeInitializeEvent@12
-undefined symbol: __declspec(dllimport) _KeClearEvent@4
-undefined symbol: __declspec(dllimport) _KeWaitForSingleObject@20
-```
-
-These are the event helpers used to make `NdisRequest` synchronous (MAC query
-and packet-filter set). The next change is to add those four decorated names
-to the **ntoskrnl** import list in `anemos/net/kernel/build.sh`, then rebuild,
-reinstall through netcfg, reboot, and check `traffic.tx >= 1` and
-`traffic.rx > 0` (an ARP reply or tcpip broadcast traffic).
+The container was moved back to `Ke*Event` imports because `NdisRequest` must be
+synchronous; those four calls are the ones that wait, so the next step is the guest run
+rather than a code change.
 
 **Guest state.** The VM NIC is AMD PCnet (`vlance`). XP's own `pcnetpci5.sys`
 and `netamd2.inf` are installed. The AnemosNet service and NetTrans component

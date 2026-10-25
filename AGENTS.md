@@ -52,6 +52,31 @@ Swap binaries host-side with `tools/ntfspatch.py` (no root, VM must be off). Dri
 guest with `vmrun` + `vncdo` on `127.0.0.1:5901` (password `xpvm`). VMware VNC cannot type
 `:` — do not build a workflow that needs it.
 
+## Environment (verified 2026-10-25)
+
+- Pinned toolchain lives at `~/.local/opt/llvm-mingw-20261006-msvcrt-ubuntu-22.04-x86_64/bin`
+  (clang 23.1.3). The gate scripts prepend it themselves; a plain shell still resolves the
+  system clang 19.1.7, which is for host sanitizer runs only.
+- `wine` is installed, so the i686 PE gates run locally.
+- Verified today: `anemos/md5/run.sh` passes 5/5, and `anemos/net/kernel/build.sh` produces
+  `anemosnet.sys` (68,608 bytes) with all four `Ke*Event` imports resolved from `ntoskrnl.exe`.
+- The oracle is present: `~/vms/xpvmware/xp-pristine.vmdk` (control) and `xp.vmdk` (subject),
+  plus `vmrun`, `vncdo` and `harness/conformance/runner.py`.
+
+## Docs can lag the tree
+
+Status text in `PLAN.md` and `docs/` records the last author's view, not the current tree.
+On 2026-10-25 both `docs/P5-NETWORK-KERNEL.md` and `PLAN.md` said the K3 frame path "fails to
+link on four `Ke*Event` imports"; the imports were already in `build.sh` and the build passed.
+Reproduce a claimed failure before fixing it, and correct the document when it is stale —
+the same rule as "measure, then claim".
+
+## Tracked build output
+
+`anemos/net/kernel/out/anemosnet.sys` and `driver_blob.h` are tracked on purpose. A rebuild
+changes them even with no source change, so revert that churn; when a source change is the
+reason, commit source and rebuilt image together.
+
 ## Layout
 
 ```
