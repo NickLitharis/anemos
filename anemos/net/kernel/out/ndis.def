@@ -11,7 +11,6 @@ EXPORTS
     NdisAllocateBufferPool@12
     NdisAllocatePacket@12
     NdisAllocateBuffer@20
-    NdisChainBufferAtBack@8
     NdisSend@12
     NdisGetFirstBufferFromPacket@20
     NdisFreeBuffer@4

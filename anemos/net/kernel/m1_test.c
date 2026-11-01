@@ -359,6 +359,14 @@ int main(int argc, char **argv)
                                  SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER,
                                  SERVICE_SYSTEM_START, SERVICE_ERROR_NORMAL,
                                  DRIVER_PATH, "NDIS", NULL, NULL, NULL, NULL);
+        /* A second install run finds the service already registered. Open it
+         * instead of stopping there, or the driver is never started and the
+         * harness reports a missing service.start when the fault is idempotency. */
+        report("service.existed", 0);
+        if (service == NULL && GetLastError() == ERROR_SERVICE_EXISTS) {
+            service = OpenServiceA(manager, "AnemosNet", SERVICE_ALL_ACCESS);
+            report("service.existed", service != NULL ? 1u : 0u);
+        }
         report("service.create", service != NULL ? 1u : 0u);
         if (service == NULL) {
             report("service.create.err", (unsigned long)GetLastError());

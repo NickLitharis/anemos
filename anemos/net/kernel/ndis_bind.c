@@ -465,9 +465,15 @@ void anem_ndis_traffic(ULONG out[4])
 {
     LARGE_INTEGER delay;
 
-    send_arp_request();
-    delay.QuadPart = -5000000LL;    /* 500 ms for the reply */
-    KeDelayExecutionThread(KernelMode, FALSE, &delay);
+    /* Sending before the adapter is bound passes a null packet pool to
+     * NdisAllocatePacket, which faults inside NDIS as 0x000000D1 on a read at
+     * DISPATCH_LEVEL. Report the counters instead of taking the machine down;
+     * the harness then sees traffic.bound 0 rather than losing the certificate. */
+    if (ndis_bound && packet_pool != NULL && buffer_pool != NULL) {
+        send_arp_request();
+        delay.QuadPart = -5000000LL;    /* 500 ms for the reply */
+        KeDelayExecutionThread(KernelMode, FALSE, &delay);
+    }
     out[0] = (ULONG)rx_frames;
     out[1] = (ULONG)tx_frames;
     out[2] = (ULONG)arp_replies;

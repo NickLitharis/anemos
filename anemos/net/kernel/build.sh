@@ -45,7 +45,7 @@ NDIS_EXPORTS=(
     NdisOpenAdapter@44 NdisCloseAdapter@8
     NdisReEnumerateProtocolBindings@4 NdisCompleteBindAdapter@12
     NdisRequest@12 NdisAllocatePacketPool@16 NdisAllocateBufferPool@12
-    NdisAllocatePacket@12 NdisAllocateBuffer@20 NdisChainBufferAtBack@8
+    NdisAllocatePacket@12 NdisAllocateBuffer@20
     NdisSend@12 NdisGetFirstBufferFromPacket@20
     NdisFreeBuffer@4 NdisFreePacket@4
 )

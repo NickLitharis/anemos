@@ -46,10 +46,34 @@ typedef enum _NDIS_MEDIUM {
     NdisMediumLoopback
 } NDIS_MEDIUM, *PNDIS_MEDIUM;
 
-typedef struct _NDIS_PACKET NDIS_PACKET, *PNDIS_PACKET;
+/* NDIS_BUFFER and the NDIS_PACKET private prefix are real structures, not opaque
+ * handles: the DDK chains buffers with a macro that writes Packet->Private, and
+ * ndis.sys exports no NdisChainBufferAt* function. Only the prefix is declared —
+ * the driver never takes sizeof(NDIS_PACKET) and never indexes an array of them.
+ * Layout from the toolchain's own i686-w64-mingw32/include/ddk/ndis.h. */
+typedef struct _NDIS_BUFFER {
+    struct _NDIS_BUFFER *Next;
+    PVOID Buffer;
+    UINT Length;
+} NDIS_BUFFER, *PNDIS_BUFFER;
+
+typedef struct _NDIS_PACKET {
+    struct {
+        UINT PhysicalCount;
+        UINT TotalLength;
+        PNDIS_BUFFER Head;
+        PNDIS_BUFFER Tail;
+        PVOID Pool;
+        UINT Count;
+        ULONG Flags;
+        BOOLEAN ValidCounts;
+        UCHAR NdisPacketFlags;
+        USHORT NdisPacketOobOffset;
+    } Private;
+} NDIS_PACKET, *PNDIS_PACKET;
+
 typedef struct _NDIS_REQUEST NDIS_REQUEST, *PNDIS_REQUEST;
 typedef struct _NET_PNP_EVENT NET_PNP_EVENT, *PNET_PNP_EVENT;
-typedef struct _NDIS_BUFFER NDIS_BUFFER, *PNDIS_BUFFER;
 
 typedef ULONG NDIS_OID;
 typedef enum _NDIS_REQUEST_TYPE {
@@ -165,7 +189,20 @@ NDIS_STATUS NTAPI NdisAllocatePacketPool(PNDIS_STATUS Status, PNDIS_HANDLE PoolH
 NDIS_STATUS NTAPI NdisAllocateBufferPool(PNDIS_STATUS Status, PNDIS_HANDLE PoolHandle, UINT NumberOfDescriptors);
 NDIS_STATUS NTAPI NdisAllocatePacket(PNDIS_STATUS Status, PNDIS_PACKET *Packet, NDIS_HANDLE PoolHandle);
 NDIS_STATUS NTAPI NdisAllocateBuffer(PNDIS_STATUS Status, PNDIS_BUFFER *Buffer, NDIS_HANDLE PoolHandle, PVOID VirtualAddress, UINT Length);
-VOID NTAPI NdisChainBufferAtBack(PNDIS_PACKET Packet, PNDIS_BUFFER Buffer);
+/* A macro in the DDK, not an exported routine. Importing it made the image fail to
+ * load with ERROR_PROC_NOT_FOUND (127) and the device never opened. */
+#define NdisChainBufferAtBack(Packet, Buffer) do {                     \
+    PNDIS_BUFFER ndis_tail_ = (Buffer);                                \
+    while (ndis_tail_->Next != NULL)                                   \
+        ndis_tail_ = ndis_tail_->Next;                                 \
+    ndis_tail_->Next = NULL;                                           \
+    if ((Packet)->Private.Head != NULL)                                \
+        (Packet)->Private.Tail->Next = (Buffer);                       \
+    else                                                               \
+        (Packet)->Private.Head = (Buffer);                             \
+    (Packet)->Private.Tail = ndis_tail_;                               \
+    (Packet)->Private.ValidCounts = FALSE;                             \
+} while (0)
 NDIS_STATUS NTAPI NdisSend(PNDIS_STATUS Status, NDIS_HANDLE BindingHandle, PNDIS_PACKET Packet);
 VOID NTAPI NdisGetFirstBufferFromPacket(PNDIS_PACKET Packet, PNDIS_BUFFER *FirstBuffer, PVOID *FirstBufferVA, PUINT FirstBufferLength, PUINT TotalBufferLength);
 VOID NTAPI NdisFreeBuffer(PNDIS_BUFFER Buffer);
