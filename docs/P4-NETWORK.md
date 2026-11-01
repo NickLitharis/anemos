@@ -35,7 +35,7 @@ the bottom layer.
 | P4.3 | Readiness/data path: `select` over read/write sets, non-blocking send/recv, EOF/reset | differential against the same model — **done (no blocking wait; the caller polls)** |
 | P4.4 | The socket path for the DNS resolver, closing P2's deferred gap — **done** | resolver differential over the socket core |
 | P4.5 | Transport seam + loopback reference transport (**done**); the real provider (TDI/WSK or the adopted stack) is still the open decision | loopback scenarios; the real gate is throughput not worse than XP |
-| P4.6 | Winsock conformance probe in XP — **probe and capture path done, execution blocked** | observed behaviour identical to XP's own Winsock |
+| P4.6 | Winsock conformance probe in XP — **done; certificate captured** | observed behaviour identical to XP's own Winsock |
 
 ## P4.1 — the address layer (done)
 
@@ -61,10 +61,10 @@ implementation stored the canonical integer, which would have made every
 `S_addr` comparison and struct field wrong despite a correct layout. The
 parser now stores `htonl(value)` and the formatters apply `ntohl` first.
 
-**Limit, stated plainly:** this proves RFC/POSIX behaviour, not XP's. XP's
-legacy `inet_addr` accepts forms the strict parser rejects, and that difference
-is exactly what the P4.6 in-guest probe must record. Until then the module does
-not claim XP compatibility for those inputs.
+**Limit, stated plainly:** XP's behaviour is claimed only where XP has the API.
+`inet_addr` and `WSAStringToAddress` follow the P4.6 certificate; `inet_pton` and
+`inet_ntop` follow POSIX because XP exports neither, so there is nothing in XP to
+match them against.
 
 ## P4.2 — the socket core (done)
 
@@ -134,7 +134,7 @@ Review-driven semantics now in the core:
 A datagram `connect` is immediately writable; the fuzz pass caught the model
 disagreeing with that, and `dgram-connect` now pins it. The corpus is 40
 traces and the C/Python diff includes the request queue and select bitmaps;
-`anemos/winsock/socket_run.sh` is 7 checks. `socket_core.c` is 2269 bytes of
+`anemos/winsock/socket_run.sh` is 7 checks. `socket_core.c` is 2296 bytes of
 `.text`.
 
 ## P4.4 — the resolver over the socket path (done)
@@ -172,7 +172,7 @@ saturate instead of wrapping; client `BADARG`/`BADSTATE` map to resolver
 trace that expects `result ok`; the corpus is regenerated from scratch,
 checked for its exact size, and asserted to reach ok, dns and timeout. Both
 processes run under a timeout and their exit status is checked. `resolver.c`
-is 914 bytes of `.text`; P2's own gate still reports 24/24.
+is 922 bytes of `.text`; P2's own gate still reports 24/24.
 
 ## P4.5 — the transport seam and the loopback (done)
 
@@ -190,7 +190,7 @@ an unbound port (asserting `WSAECONNREFUSED` and the return to `bound`), a
 one-deep backlog whose second connection is reset, and UDP in both directions.
 The gate (`anemos/winsock/transport_run.sh`, 7 checks) requires all 27
 assertions and the final banner, rejects a build that drops one byte in
-transit, and keeps `loopback.c` (1061 B) and `socket_core.c` (2318 B) inside
+transit, and keeps `loopback.c` (1061 B) and `socket_core.c` (2296 B) inside
 the 8 KB budget.
 
 **Still open:** the bottom half. `docs/P4-TRANSPORT-DECISION.md` records the
@@ -245,26 +245,23 @@ The fixes are in `addr.c` (a separate legacy parser; `inet_pton` stays strict),
 the P4.6 conformance result for the observed surface: the certificate is the
 oracle, and the host twin reproduces it case for case.
 
-## Blocked: P4.6
+## What P4 still owes
 
-- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem is
-  read-only and VMware cannot start (setuid-to-nobody `vmware-vmx`, no
-  `/dev/vmmon`; both need root). Nothing in P4.1-P4.5 claims XP behaviour:
-  XP's legacy parser quirks, `listen` on datagram sockets and the exact
-  readiness edges are explicitly deferred to this probe.
-- **P3's guest gates** (RAND hardening for the `rsaenh` slot, the SPI run and
-  the CryptoAPI path in XP) remain open for the same reason.
-- **P4.6 — XP Winsock conformance.** Needs the VM. The host root filesystem
-  remounted read-only after ext4 errors, so the VMDKs cannot be patched or
-  booted. Nothing in P4.1-P4.4 claims XP behaviour: XP's legacy parser quirks,
-  `listen` on datagram sockets and the exact readiness edges are explicitly
-  deferred to this probe.
-- **P3's guest gates** (RAND hardening for the `rsaenh` slot, the SPI run and
-  the CryptoAPI path in XP) remain open for the same reason.
+- **K3 — the guest frame run.** `traffic.tx`/`traffic.rx` have not been captured; the
+  driver builds to 68,608 bytes and the capture scripts exist
+  (`anemos/net/kernel/m1_run.sh`). See `docs/P5-NETWORK-KERNEL.md`.
+- **The VM dependency.** Every guest gate needs this host. An earlier revision of this
+  section recorded the root filesystem as read-only and VMware as unable to start; on
+  2026-11-01 that is false — `/` is mounted `rw`, `vmmon`/`vmnet` are loaded and
+  `vmrun list` answers. The guest gates can be re-run; the exposure remains.
 
-The honest claim for P4 today is therefore: the user-space socket surface and
-the resolver glue are written and host-tested against independent models, with
-no XP conformance claim and no transport underneath.
+P4.6 itself is done: `anemos/winsock/xp/winsock-cert.txt` holds 47 observations captured
+in the guest plus its completion banner, the host twin reproduces it identically, and
+`conformance_compare.py` rejects a changed, missing or extra case.
+
+The honest claim for P4 today: the user-space socket surface and the resolver glue are
+written and host-tested against independent models, and the observed Winsock behaviour is
+pinned to XP by the P4.6 certificate. What is still missing is the transport underneath.
 
 ## Reproducing
 
@@ -272,6 +269,6 @@ no XP conformance claim and no transport underneath.
 anemos/winsock/run.sh          # P4.1 address layer: 6/6
 anemos/winsock/socket_run.sh   # P4.2/4.3 socket core: 7/7
 anemos/winsock/transport_run.sh # P4.5 seam + loopback: 7/7
-anemos/winsock/conformance_run.sh # P4.6 probe + comparator: 9/9
+anemos/winsock/conformance_run.sh # P4.6 probe + comparator: 14/14
 anemos/dns/resolver_run.sh      # P4.4 resolver: 8/8
 ```

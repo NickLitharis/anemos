@@ -1,9 +1,11 @@
 # Anemos — the plan
 
-**This document supersedes `MODERNIZATION_PLAN.md`, `docs/OPEN-REPLACEMENT-PLAN.md` and
-`docs/ANEMOS-PLAN.md`.** Those are kept for history; where they disagree with this, this
-wins. They used three incompatible numbering schemes (M0-M4, R0-R5, P0-P5) for the same
-work, which is a reliable way to lose track of what is done.
+**This document supersedes `MODERNIZATION_PLAN.md`, `docs/OPEN-REPLACEMENT-PLAN.md`,
+`docs/ANEMOS-PLAN.md` and `STATE.md`.** Those are kept for history; where they disagree
+with this, this wins. They used three incompatible numbering schemes (M0-M4, R0-R5, P0-P5)
+for the same work, which is a reliable way to lose track of what is done. `STATE.md` still
+says "M0 is done and M2 is the live track": that numbering is dead, and its kernel-boot
+result is now row 1 of the table below.
 
 ---
 
@@ -25,6 +27,12 @@ Three constraints follow, and they are not negotiable:
 ## Where we actually are
 
 Not a roadmap — measured state as of today.
+
+Re-measured 2026-11-01: all 17 host-side gates exit 0 with 162 passing assertions and no
+skips; the 8 guest gates were not run. Run them with the commands in each `docs/P*.md` and
+in `anemos/*/run.sh`. A ✅ below means a gate in this tree proves it, not that it compiles.
+
+Legend: ✅ gated and passing · ◐ partial, with the missing piece named · ⏳ not started or not run.
 
 | Capability | Status | Evidence |
 |---|---|---|
@@ -48,16 +56,16 @@ Not a roadmap — measured state as of today.
 | **P3.2a — symmetric keys + AES** | ✅ | AES-128/192/256 key objects, CBC/ECB, PKCS#5/zero padding, `PLAINTEXTKEYBLOB` import/export/duplicate, `CPDeriveKey`, one-shot `CPEncrypt`/`CPDecrypt`; SP 800-38A KATs through the SPI, 11/11 (`docs/P3-CSP-SPI.md`) |
 | **P3.2b — streaming cipher** | ✅ | Multi-call `CPEncrypt`/`CPDecrypt` with per-key EVP buffering; 5+11+16-byte encryption reproduces SP 800-38A, PKCS#5 and zero-padding streaming tests, 11/11 (`docs/P3-CSP-SPI.md`) |
 | **P3.3 — RSA keys + sign/verify** | ✅ | 1024-bit `CALG_RSA_SIGN`/`KEYX`, `PUBLICKEYBLOB`/`PRIVATEKEYBLOB` export/import (private round-trip), ephemeral `CPGetUserKey`, PKCS#1 v1.5 `CPSignHash`/`CPVerifySignature`; tamper/wrong-digest negatives, 11/11 (`docs/P3-CSP-SPI.md`) |
-| **P4.1 — Winsock address layer** | ✅ | Byte order, `sockaddr_in`, strict IPv4 `inet_pton`/`inet_ntop`/`inet_addr`/`inet_ntoa`; 586-case corpus against Python `ipaddress`, negative control rejects a wrong renderer; `addr.c` 438 B `.text` (`docs/P4-NETWORK.md`). POSIX behaviour claimed, XP quirks deferred to the P4.6 probe. |
+| **P4.1 — Winsock address layer** | ✅ | Byte order, `sockaddr_in`, IPv4 `inet_pton`/`inet_ntop`/`inet_addr`/`inet_ntoa`; 586-case corpus against Python `ipaddress`, negative control rejects a wrong renderer; `addr.c` 843 B `.text` (measured by `anemos/winsock/run.sh`). The P4.6 certificate is what added the legacy parser: XP's `inet_addr` accepts 1-4 parts, octal and hex, and returns 0 for a leading space. `inet_pton` stays strict because XP has no such API (`docs/P4-NETWORK.md`). |
 | **P3.5 — signature experiment** | ✅ | Every documented `CryptAcquireContext` route returns `NTE_BAD_SIGNATURE` on stock XP; the stock provider still acquires. Decision: no `advapi32` patch; XP CryptoAPI recorded as unclaimable (`docs/P3-CRYPTO.md`, `anemos/csp/xp/csp-sig.txt`). |
 | **P3.6 — RAND hardening** | ✅ host | OpenSSL patched to seed from `SystemFunction036` (not CryptoAPI), built `no-engine`, and explicitly seeded at first context; the gate proves the DLL imports no `Crypt*` entry points; guest recursion test waits on the P3.5 route (`docs/P3-CRYPTO.md`). |
 | **P3.4 — SPI harness inside XP** | ✅ | 163 checks through `LoadLibrary` in the guest; PASS/FAIL lines identical to the host run, certificates in `anemos/csp/xp/` (`docs/P3-CSP-SPI.md`). Guest PEs must declare subsystem 5.01. |
-| **P4.6 — XP Winsock observation probe** | ✅ code, ⏳ run | Scripted `inet_addr`/`WSAStringToAddress`/error/readiness observations, XP-clean imports (XP has no `inet_pton`), capture script and case-by-case comparator; probe gate 9/9 (`docs/P4-NETWORK.md`). The host twin, comparator and capture path are done; the XP run is the remaining step. |
+| **P4.6 — XP Winsock observation probe** | ✅ | Captured in the guest: `anemos/winsock/xp/winsock-cert.txt`, 47 observations plus the completion banner. The host twin reproduces it identically, and the comparator rejects a changed, missing or extra case; probe gate 14/14 (`docs/P4-NETWORK.md`). This closes the "XP quirks deferred" note on every P4 slice below. |
 | **P4.5 — lwIP spike (MIT route)** | ✅ start | lwIP 2.2.0 (BSD-3) pinned outside the tree, built `NO_SYS` for i686 Windows; loopback UDP round-trip gated 4/4 with a negative control. Adapter to the socket-core seam is next (`docs/P4-TRANSPORT-DECISION.md`). ReactOS rejected. |
 | **P4.5 — transport seam + loopback** | ✅ reference | `open/bind/listen/connect/accept/send/shutdown/close/refuse` requests with injected events; 27 end-to-end assertions over TCP, UDP, EOF, refusal and backlog, negative byte-drop control; `loopback.c` 1061 B `.text` (`docs/P4-NETWORK.md`). The real TDI/WSK or adopted-stack provider remains the open decision. |
-| **P4.4 — resolver over the socket path** | ✅ | DNS A/AAAA over the socket core: explicit-time retries, in-message CNAME chains, fresh xid per restart, 18 differential traces (ok/dns/timeout all exercised), negative control on every ok trace; `resolver.c` 914 B `.text` (`docs/P4-NETWORK.md`). Closes P2's deferred socket path. |
-| **P4.3 — readiness and data path** | ✅ | `select` over read/write sets, non-blocking `send`/`recv`, EOF/reset, `WSAEWOULDBLOCK`/`WSAESHUTDOWN`/`WSAECONNRESET`; 40 traces match the model, 30k-op fuzz clean, `socket_core.c` 2269 B `.text` (`docs/P4-NETWORK.md`). No blocking wait — the transport owns that. |
-| **P4.2 — socket lifecycle core** | ✅ | Transport-free state machine for `socket`/`bind`/`listen`/`connect`/`accept`/`shutdown`/`close`, with a drained request queue and injected events; 26 traces match an independent Python model, a broken accept queue is rejected, `socket_core.c` 1261 B `.text` (`docs/P4-NETWORK.md`). |
+| **P4.4 — resolver over the socket path** | ✅ | DNS A/AAAA over the socket core: explicit-time retries, in-message CNAME chains, fresh xid per restart, 18 differential traces (ok/dns/timeout all exercised), negative control on every ok trace; `resolver.c` 922 B `.text` (measured by `anemos/dns/resolver_run.sh`). Closes P2's deferred socket path. |
+| **P4.3 — readiness and data path** | ✅ | `select` over read/write sets, non-blocking `send`/`recv`, EOF/reset, `WSAEWOULDBLOCK`/`WSAESHUTDOWN`/`WSAECONNRESET`; 40 traces match the model, 30k-op fuzz clean, `socket_core.c` 2296 B `.text` (measured by `anemos/winsock/socket_run.sh`). No blocking wait — the transport owns that. |
+| **P4.2 — socket lifecycle core** | ✅ | Transport-free state machine for `socket`/`bind`/`listen`/`connect`/`accept`/`shutdown`/`close`, with a drained request queue and injected events; 26 traces match an independent Python model, a broken accept queue is rejected, `socket_core.c` 1261 B `.text` as built at P4.2, 2296 B after P4.3 (`docs/P4-NETWORK.md`). |
 | **P3.5 — CryptoAPI plumbing** | ✅ Wine | Registered in a Wine prefix and driven through advapi32: acquire, hashes, random, AES-CBC vector, RSA sign/verify, plus a cross-provider check proving the little-endian CryptoAPI signature convention; 7/7 (`docs/P3-CSP-SPI.md`). Stock XP's image-signature check still blocks the real XP path. |
 
 The method is proven, P1 is written and gated
@@ -125,8 +133,11 @@ Each phase begins only when the previous gate passes.
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: engine (**done, XP-safe**), SPI skeleton (**done**), AES keys/streaming (**done**), RSA sign/verify (**done**), the XP guest run (**done**), then the CryptoAPI path | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
-| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the licence decision is settled (MIT; ReactOS rejected), the transport itself is blocked on the kernel/P5 scope question — `docs/P4-TRANSPORT-DECISION.md` | Winsock conformance; throughput not worse |
-| **K3 — NDIS binding** | ✅ bind, ◐ frames | NIC driver installed in XP (AMD PCnet, `192.168.103.129`), NDIS 5.1 protocol registers; `Ndi`/`Linkage` keys, an adapter restart and system-start boot loading still do not make NDIS call `ProtocolBindAdapter`. A hand-created NetTrans component and a borrowed `ms_tcpip` identity still did not trigger `ProtocolBindAdapter`; NDIS binds the protocol (`ndis.bound 1`); the frame path (filter, MAC query, receive, ARP transmit) builds as a 68,608-byte `anemosnet.sys` with the four `Ke*Event` imports resolved from `ntoskrnl`; the guest run (`traffic.tx`/`traffic.rx`) is the remaining step (`docs/P5-NETWORK-KERNEL.md`). |
+| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the licence decision is settled (MIT; ReactOS rejected), the transport provider is still an open decision, not a blocked one — `docs/P4-TRANSPORT-DECISION.md` | Winsock conformance; throughput not worse |
+| **K6 — throughput** | ⏳ | Not worse than XP's stack on the same VM (`docs/P5-NETWORK-KERNEL.md`) |
+| **K5 — replace `tcpip.sys`** | ⏳ | Swap the stack on the test image, then run P4's Winsock certificate against it: 47/47 or documented differences (`docs/P5-NETWORK-KERNEL.md`) |
+| **K4 — TDI surface** | ⏳ | Compatible with `afd.sys`: `ping` first, then `telnet`/`ftp`/HTTP through Winsock (`docs/P5-NETWORK-KERNEL.md`) |
+| **K3 — NDIS binding** | ✅ bind, ◐ frames | NIC driver installed in XP (AMD PCnet, `192.168.103.129`), NDIS 5.1 protocol registers; `Ndi`/`Linkage` keys, an adapter restart and system-start boot loading still do not make NDIS call `ProtocolBindAdapter`. A hand-created NetTrans component and a borrowed `ms_tcpip` identity still did not trigger `ProtocolBindAdapter`; NDIS binds the protocol (`ndis.bound 1`); the frame path (filter, MAC query, receive, ARP transmit) builds as a 68,608-byte `anemosnet.sys` with the four `Ke*Event` imports resolved from `ntoskrnl`; the guest run (`traffic.tx`/`traffic.rx`) is the remaining step, and no `traffic.*` file exists in the tree today (`docs/P5-NETWORK-KERNEL.md`). |
 | **K2 — lwIP in the kernel** | ✅ | lwIP `NO_SYS` built freestanding, kernel clock and loopback netif; an in-kernel UDP round trip returns an FNV-1a checksum that matches the user-mode implementation (`254371596`), and the driver still unloads (`docs/P5-NETWORK-KERNEL.md`). |
 | **K1 — loadable Anemos driver** | ✅ | clang + mingw DDK headers, generated `ntoskrnl` import library, XP image rules (checksum, alignment, `.data`), device + IOCTL ping + unload in the guest; gate: `anemos/net/kernel/m1_run.sh` (`docs/P5-NETWORK-KERNEL.md`). |
 | **P5** | Kernel proper, **except the network stack** | Out of scope except the network transport, by owner decision: `docs/P5-NETWORK-KERNEL.md`. Everything else in P5 stays out. |
@@ -135,6 +146,31 @@ P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply 
 is asked to judge anything hard.
 
 ---
+
+## Open decisions
+
+Three things are decided by the owner, not by more code. None of them blocks the K3 guest run.
+
+1. **The P4 transport provider.** The seam is done and a loopback reference transport passes.
+   What fills it — TDI/WSK, or the adopted lwIP stack — is unmade. Memo:
+   `docs/P4-TRANSPORT-DECISION.md`. lwIP 2.2.0 (BSD-3) is adopted for the spike; ReactOS is
+   rejected on licence grounds.
+2. **The P5 scope.** Deferred here as "decide after P2 proves the method". P2 is complete and
+   the method is proven, so this is due now. It decides whether the deliverable is a
+   well-specified shell over Microsoft's kernel, or a GPL/LGPL branch through ReactOS's.
+3. **XP CryptoAPI.** Stock XP verifies provider image signatures, so every documented
+   `CryptAcquireContext` route returns `NTE_BAD_SIGNATURE` while the stock provider still
+   acquires. The CSP is proved through the SPI directly, not through CryptoAPI: recorded as
+   unclaimable, not as failed (`docs/P3-CRYPTO.md`).
+
+### The one dependency
+
+Every guest gate needs this host: VMware, the `vmmon`/`vmnet` modules, and
+`~/vms/xpvmware/{xp-pristine,xp}.vmdk`. That is a single point of failure for the whole
+method, and it has already stopped work once — `docs/P4-NETWORK.md` recorded the root
+filesystem as read-only and VMware as unable to start, which is why the guest gates
+stopped. On 2026-11-01 `/` is mounted `rw`, both modules are loaded and `vmrun list`
+answers, so that note is stale; the exposure it describes is not.
 
 ## What is deliberately out of scope
 
@@ -168,7 +204,16 @@ nobody has legally rewritten.
 
 ---
 
-## Next three actions
+## Next actions
+
+1. **K3 — capture `traffic.tx` and `traffic.rx` in the guest.** The driver builds and the VM
+   works again; this is the last step between the plan and a proven frame path.
+2. **Decide the P4 transport provider** (open decision 1), then drain the socket core's
+   requests through it.
+3. **Re-run the 8 guest gates and date the result.** The 17 host gates were re-measured
+   2026-11-01; the guest gates have no timestamp newer than their documents.
+
+### Completed, in order
 
 1. ~~**G1 — ABI proof.**~~ **Passed 2026-10-18** (`docs/G1-ABI-PROOF.md`).
 2. ~~**G2 — conformance runner skeleton**, validated on the two kernels we already have.~~
@@ -246,12 +291,12 @@ nobody has legally rewritten.
     **P3.5 plumbing done under Wine** (`api_run.sh`, 7/7): CryptoAPI
     registration, parameter translation, AES/RSA through advapi32, and the
     little-endian signature convention proved against a second provider.
-    Next: run the SPI harness inside XP (P3.4); the XP CryptoAPI path still
-    waits on the provider-image signature decision.
+    The SPI harness then ran inside XP (P3.4, 163 checks); the XP CryptoAPI path still
+    waits on the provider-image signature decision, open decision 3 above.
 
-Nothing else should be started before G1 and G2 pass. Everything after them is
-substitution work behind stable interfaces, which is tractable precisely because the
-interfaces do not move.
+That list is history, not a queue. G1 and G2 have both passed, and everything after them
+was substitution work behind stable interfaces — tractable precisely because the
+interfaces did not move.
 
 ---
 
@@ -273,6 +318,10 @@ interfaces do not move.
 | `docs/P2-DHCP-CLIENT.md` | DHCP client: states, timers, determinism, the trace gate, limits |
 | `docs/P3-CRYPTO.md` | Crypto engine evidence, CSP ABI, the signature constraint, the RAND hazard |
 | `docs/P3-CSP-SPI.md` | CSP skeleton: implemented entry points, the LoadLibrary gate, limits |
-| `docs/P4-NETWORK.md` | Network stack: slice plan, the transport decision, the address-layer gate |
+| `docs/P4-NETWORK.md` | Network stack: slice plan, the address-layer gate, the P4.6 probe |
 | `docs/P4-TRANSPORT-DECISION.md` | P4.5 memo: lwIP vs ReactOS vs stop; the kernel boundary |
+| `docs/P5-NETWORK-KERNEL.md` | K1-K5: driver loading, NDIS binding, the frame path, the remaining guest run |
+| `docs/G1-ABI-PROOF.md`, `docs/G2-CONFORMANCE-RUNNER.md` | The two gates, with their negative controls |
+| `CHANGELOG.md` | What changed, by release |
+| `STATE.md` | Historical: the freestanding era and the kernel-boot result, in dead M-numbering |
 | `docs/reference/P10-nasa-jpl.pdf` | NASA/JPL Power of Ten |
