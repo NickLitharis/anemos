@@ -1,6 +1,6 @@
 # Scope of this project's own work
 
-MIT-licensed (see LICENSE). Everything listed here was written for this project.
+MIT applies only to files with established original or third-party provenance, as listed below. Directory membership alone does not establish authorship or licensing.
 
 ## Licensed under MIT — original work
 
@@ -10,6 +10,20 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 - `anemos/crypto/`, `csp/` — P3 engine proof and CSP SPI skeleton
 - their tests, independent Python reference implementations, corpora and gates
 
+**AK1–AK3 kernel and boot**
+- `kernel/main.c`, `kernel/linker.ld`, `kernel/serial.c`, `kernel/serial.h`,
+  `kernel/interrupts.c`, `kernel/interrupts.h`, `kernel/interrupts.S`,
+  `kernel/limine_requests.c`, `kernel/limine_requests.h`, `kernel/memory.c`,
+  `kernel/memory.h`, `kernel/paging.c`, `kernel/paging.h`, `kernel/heap.c`,
+  `kernel/heap.h`, `kernel/memory_test.c`, `kernel/memory_test.h`,
+  `boot/limine.conf`, `boot/build.sh` — independently authored C23 kernel
+  entry, Limine requests, serial diagnostics, x86_64 exceptions and timer,
+  physical-page allocation, virtual mapping, bounded heap, and QEMU gate
+
+The Limine v12.9.6 BIOS tools are downloaded to the user's cache by the build
+script and checked against a pinned SHA-256. They are not checked into or
+redistributed with this repository.
+
 **Build harness and tooling**
 - `harness/razzle.sh`, `harness/razzle-env.cmd`
 - `harness/razzle-amd64.sh`, `harness/razzle-amd64-env.cmd`
@@ -17,17 +31,6 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 - `tools/abi/*`, `tools/build_codemap.py`, `tools/gen_amd64_status_inc.py`,
   `tools/ntfspatch.py`, `tools/toolchain.lock`
 
-**Kernel experiments (`kernel/`)**
-- `kernel/build.sh`, `kernel/gen_runtable.py`
-- `kernel/inc/xpntdef.h`, `kernel/inc/xpkernel.h`
-- `kernel/src/*.c` — the freestanding shims, arena, and generated tables
-- `kernel/tests/*.c` — all test suites
-- `kernel/rtl_string_standalone.c`, `kernel/*.md`
-
-**Boot experiments (`boot/`)**
-- `boot/build.sh`, `boot/link.ld`, `boot/run_all.sh`
-- `boot/*.c`, `boot/rtl/*.c`, `boot/tests/*.c`
-- `boot/README.md`
 
 **Documentation (`docs/`, root)**
 - all `docs/*.md`
@@ -35,6 +38,19 @@ MIT-licensed (see LICENSE). Everything listed here was written for this project.
 - `README.md`, `PHASES.md`, `STATE.md`, `MODERNIZATION_PLAN.md`,
   `STANDING_INSTRUCTIONS.md`
 - `docs/OPEN-REPLACEMENT-PLAN.md`, `docs/TASK-REQUIREMENTS.md`
+
+## Third-party or unresolved-provenance files in the repository
+
+**Removed historical XP-derived experiments (`kernel/`, `boot/`)**
+- Tracked Microsoft-derived source, headers, probes, tests and compiled products
+  were removed from the checkout and local Git refs/tags.
+- The cleaned history has been force-pushed to GitHub. Existing clones must be
+  recreated or carefully reset before contributing.
+- The ignored local `Source/` symlink points outside this repository and is not
+  included in tracked files or releases.
+- Current `kernel/` and `boot/` files are the original AK1–AK3 implementation
+  listed above; no Microsoft code is used in the boot path.
+
 
 ## NOT licensed by us — third-party material
 

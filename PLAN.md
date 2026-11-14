@@ -11,26 +11,26 @@ result is now row 1 of the table below.
 
 ## The goal, stated once
 
-Build an operating system inspired by Windows XP: **new code, written to 2026 standards,
-validated for behavioural compatibility against XP itself.**
+Build Anemos as an **original, open-source kernel and operating system inspired by Windows XP**, with compatibility judged against XP's observable behaviour. XP is the reference system, never Anemos's codebase.
+
+Anemos must boot and run its own kernel without Microsoft's kernel. Compatibility is an outcome to earn subsystem by subsystem, not a claim that the kernel can reproduce undocumented internals exactly.
 
 Three constraints follow, and they are not negotiable:
 
-1. **Legal.** No Microsoft source in the deliverable. The leak is a specification and a
-   test oracle only (`NOTICE.md`).
-2. **Standards.** C23 / C++23, clang 23.1.3, `docs/OS-CODING-RULES.md` (17 rules),
-   `docs/SIZE-POLICY.md`.
-3. **Compatibility.** XP is the oracle. Where our behaviour differs, XP is right.
+1. **Independent implementation.** No Microsoft source or mechanically transliterated logic in Anemos. Use public specifications and observed behavior; keep provenance for new code.
+2. **Open-source boundary.** Only files with established original or third-party licensing may ship as Anemos. Existing XP-derived experiments require provenance and release review.
+3. **Compatibility.** XP is the behavioral oracle. Record differences; do not change XP to make a test pass.
+4. **Standards.** C23 / C++23, clang 23.1.3, `docs/OS-CODING-RULES.md` and `docs/SIZE-POLICY.md`.
 
 ---
 
 ## Where we actually are
 
-Not a roadmap — measured state as of today.
+Status is backed by explicit gates, not compilation alone.
 
-Re-measured 2026-11-01: all 17 host-side gates exit 0 with 162 passing assertions and no
-skips; the 8 guest gates were not run. Run them with the commands in each `docs/P*.md` and
-in `anemos/*/run.sh`. A ✅ below means a gate in this tree proves it, not that it compiles.
+Host-side gates last re-measured 2026-11-01: all 17 exit 0 with 162 passing assertions
+and no skips; the 8 XP guest gates were not run. The AK3 boot/memory gate passed on
+2026-11-13 with `./boot/build.sh`. A ✅ below means a gate in this tree proves it.
 
 Legend: ✅ gated and passing · ◐ partial, with the missing piece named · ⏳ not started or not run.
 
@@ -42,7 +42,7 @@ Legend: ✅ gated and passing · ◐ partial, with the missing piece named · �
 | Modern compiler → legacy libs → working PE | ✅ | clang 23.1.3 + `lld-link` on real `ntosrtl.lib` |
 | Two bootable kernels, one disk (the oracle) | ✅ | `xp-pristine.vmdk` / `xp.vmdk` |
 | Host-side binary swap, no root | ✅ | `tools/ntfspatch.py` |
-| Legal boundary | ✅ | `LICENSE`, `NOTICE.md`, `SCOPE.md` |
+| Legal/source provenance boundary | ◐ | AK0 removed Microsoft-derived `kernel/` and `boot/` experiments from checkout/history; AK1 files are independently authored. The ignored external `Source/` reference remains outside the repository. |
 | Coding standards | ✅ | `docs/OS-CODING-RULES.md` |
 | **Conformance runner** | ✅ | `harness/conformance/runner.py` → `docs/G2-CONFORMANCE-RUNNER.md` (IDENTICAL, A/A and A/B) |
 | **ABI compatibility proof** | ✅ | `tools/abi/run.sh` → `docs/G1-ABI-PROOF.md` (15/15) |
@@ -68,11 +68,17 @@ Legend: ✅ gated and passing · ◐ partial, with the missing piece named · �
 | **P4.2 — socket lifecycle core** | ✅ | Transport-free state machine for `socket`/`bind`/`listen`/`connect`/`accept`/`shutdown`/`close`, with a drained request queue and injected events; 26 traces match an independent Python model, a broken accept queue is rejected, `socket_core.c` 1261 B `.text` as built at P4.2, 2296 B after P4.3 (`docs/P4-NETWORK.md`). |
 | **P3.5 — CryptoAPI plumbing** | ✅ Wine | Registered in a Wine prefix and driven through advapi32: acquire, hashes, random, AES-CBC vector, RSA sign/verify, plus a cross-provider check proving the little-endian CryptoAPI signature convention; 7/7 (`docs/P3-CSP-SPI.md`). Stock XP's image-signature check still blocks the real XP path. |
 
-The method is proven, P1 is written and gated
-(`anemos/{md5,sha1,base64,crc32,nls,statusdos}/`; shared status codes in
-`anemos/include/`), and P2's DNS codec/client, DHCP codec and DHCP client are
-gated (`anemos/{dns,dhcp}/`). Everything from here is substitution work behind
-stable interfaces.
+P0–P4 delivered a valuable host-side conformance method and reusable, independently implemented libraries and protocols. They are not a kernel.
+
+The historical `kernel/` and `boot/` XP-source experiments were removed. AK1–AK3
+now contain the independently authored kernel: Limine boot, CPU exceptions and
+timer interrupts, physical page allocation, 4-level virtual page mapping, and a
+bounded 64-KiB heap. `./boot/build.sh` boots QEMU and verifies allocator, mapping,
+heap, timer, and injected-fault behavior over serial. Process address spaces and
+scheduling are not implemented yet. `anemos/net/kernel/` remains an XP-loaded
+driver experiment, not an Anemos kernel.
+
+The project now targets an independently implemented, bootable XP-inspired kernel. P0–P4 remain reusable compatibility work; they no longer define project completion.
 
 ---
 
@@ -133,14 +139,19 @@ Each phase begins only when the previous gate passes.
 | **P1** | First replacement: pure algorithms — CRC-32, MD5/SHA, Base64, `STATUS→DOS` map, NLS tables | byte-identical on NIST/RFC vectors; `STATUS→DOS` proved against XP for all 2^32 statuses by an in-guest certificate with zero mismatches (`anemos/statusdos/run.sh`, 14/14); negative controls must fail |
 | **P2** | Wire formats: DNS codec/client (**done**), DHCP codec/client (**done**) | identical bytes out, identical error codes on malformed input |
 | **P3** | Crypto: engine (**done, XP-safe**), SPI skeleton (**done**), AES keys/streaming (**done**), RSA sign/verify (**done**), the XP guest run (**done**), then the CryptoAPI path | known-answer tests through the SPI; CryptoAPI integration is constrained by XP's provider-signature check — see `docs/P3-CRYPTO.md` |
-| **P4** | Network stack (288 C files) — largest, deliberately last. **Started 2026-10-21** with the Winsock address layer (P4.1), the socket lifecycle core (P4.2) the readiness/data path (P4.3) the resolver glue (P4.4) the transport seam with a loopback reference (P4.5) and XP Winsock conformance (P4.6, IDENTICAL 47/47); the licence decision is settled (MIT; ReactOS rejected), the transport provider is still an open decision, not a blocked one — `docs/P4-TRANSPORT-DECISION.md` | Winsock conformance; throughput not worse |
-| **K6 — throughput** | ⏳ | Not worse than XP's stack on the same VM (`docs/P5-NETWORK-KERNEL.md`) |
-| **K5 — replace `tcpip.sys`** | ⏳ | Swap the stack on the test image, then run P4's Winsock certificate against it: 47/47 or documented differences (`docs/P5-NETWORK-KERNEL.md`) |
-| **K4 — TDI surface** | ⏳ | Compatible with `afd.sys`: `ping` first, then `telnet`/`ftp`/HTTP through Winsock (`docs/P5-NETWORK-KERNEL.md`) |
-| **K3 — NDIS binding** | ✅ bind, ◐ frames | NIC driver installed in XP (AMD PCnet, `192.168.103.129`), NDIS 5.1 protocol registers; `Ndi`/`Linkage` keys, an adapter restart and system-start boot loading still do not make NDIS call `ProtocolBindAdapter`. A hand-created NetTrans component and a borrowed `ms_tcpip` identity still did not trigger `ProtocolBindAdapter`; NDIS binds the protocol (`ndis.bound 1`); the frame path (filter, MAC query, receive, ARP transmit) builds as a 68,608-byte `anemosnet.sys` with the four `Ke*Event` imports resolved from `ntoskrnl`; the guest run (`traffic.tx`/`traffic.rx`) is the remaining step, and no `traffic.*` file exists in the tree today (`docs/P5-NETWORK-KERNEL.md`). |
-| **K2 — lwIP in the kernel** | ✅ | lwIP `NO_SYS` built freestanding, kernel clock and loopback netif; an in-kernel UDP round trip returns an FNV-1a checksum that matches the user-mode implementation (`254371596`), and the driver still unloads (`docs/P5-NETWORK-KERNEL.md`). |
-| **K1 — loadable Anemos driver** | ✅ | clang + mingw DDK headers, generated `ntoskrnl` import library, XP image rules (checksum, alignment, `.data`), device + IOCTL ping + unload in the guest; gate: `anemos/net/kernel/m1_run.sh` (`docs/P5-NETWORK-KERNEL.md`). |
-| **P5** | Kernel proper, **except the network stack** | Out of scope except the network transport, by owner decision: `docs/P5-NETWORK-KERNEL.md`. Everything else in P5 stays out. |
+| **P4** | Winsock/network compatibility libraries and model gates; reusable user-mode and protocol work, not kernel completion. Transport choice is still open (`docs/P4-TRANSPORT-DECISION.md`). |
+| **AK0 — provenance and architecture** | ✅ | Removed XP-derived `kernel/` and `boot/` experiments from checkout, local refs/tags, and GitHub. First target: C23, x86_64, Limine, QEMU, serial debug output. |
+| **AK1 — independent boot** | ✅ | `./boot/build.sh` builds the freestanding ELF, makes a Limine BIOS ISO, boots QEMU, and verifies `ANEMOS: boot ok` on serial. No XP kernel or copied XP RTL in the boot path. |
+| **AK2 — CPU and platform foundation** | ✅ | `./boot/build.sh` verified IDT exception vectors 0–31, remapped PIC/PIT IRQ0 ticks, and an injected divide-by-zero panic on QEMU serial after three timer ticks. |
+| **AK3 — memory management** | ✅ | `./boot/build.sh` verifies Limine memory-map/HHDM setup, zeroed 4-KiB allocation/free/reuse, page mapping and aliases, 64-KiB heap alignment/split/coalesce/OOM/reuse, then AK2 timer/fault checks on QEMU. |
+| **AK4 — execution and synchronization** | ⏳ Threads, context switching, scheduler, interrupt-safe synchronization and timer waits; decide SMP scope before adding multiprocessor support. |
+| **AK5 — processes and system-call boundary** | ⏳ User/kernel privilege separation, process address spaces, executable loading, system-call ABI and captured user-buffer transfer; negative tests cover invalid pointers and privilege violations. |
+| **AK6 — kernel services and security** | ⏳ Dispatcher objects, handles, waits, events, timers, IPC and a defined access-control model; test lifecycle, authorization and concurrency invariants. |
+| **AK7 — I/O, storage and drivers** | ⏳ Device/driver model, request dispatch, interrupt/DMA contracts, and a usable filesystem/storage path; start with emulated devices and bounded integration tests. |
+| **AK8 — XP compatibility surface** | ⏳ Implement prioritized documented/observable NT-compatible system calls, exports and driver ABI; differential tests against XP. Do not promise undocumented internal identity. |
+| **AK9 — network integration** | ⏳ Integrate independently licensed networking behind Anemos-owned kernel interfaces; XP NDIS/TDI experiments remain reference evidence, not the Anemos kernel. |
+
+AK0–AK3 are complete. AK4 is next: add execution, context switching, scheduling and synchronization while keeping the current single-core scope explicit. Process address spaces remain AK5. Do not extend the XP-only network driver as a substitute for kernel work.
 
 P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply before it
 is asked to judge anything hard.
@@ -149,19 +160,13 @@ is asked to judge anything hard.
 
 ## Open decisions
 
-Three things are decided by the owner, not by more code. None of them blocks the K3 guest run.
+The first target is decided: x86_64, Limine boot, QEMU, C23, and serial debug output. The P4 transport provider remains open for the XP network-replacement track and does not block AK0/AK1.
 
-1. **The P4 transport provider.** The seam is done and a loopback reference transport passes.
-   What fills it — TDI/WSK, or the adopted lwIP stack — is unmade. Memo:
-   `docs/P4-TRANSPORT-DECISION.md`. lwIP 2.2.0 (BSD-3) is adopted for the spike; ReactOS is
-   rejected on licence grounds.
-2. **The P5 scope.** Deferred here as "decide after P2 proves the method". P2 is complete and
-   the method is proven, so this is due now. It decides whether the deliverable is a
-   well-specified shell over Microsoft's kernel, or a GPL/LGPL branch through ReactOS's.
-3. **XP CryptoAPI.** Stock XP verifies provider image signatures, so every documented
-   `CryptAcquireContext` route returns `NTE_BAD_SIGNATURE` while the stock provider still
-   acquires. The CSP is proved through the SPI directly, not through CryptoAPI: recorded as
-   unclaimable, not as failed (`docs/P3-CRYPTO.md`).
+XP's stock CryptoAPI image-signature behavior is a documented constraint, not a kernel prerequisite.
+
+### Verification boundary
+
+XP can validate observable ABI and behavior, but it cannot be the specification for every internal kernel detail. Each subsystem needs an explicit contract, independent tests for internal invariants, and differential XP tests only where behavior is observable.
 
 ### The one dependency
 
@@ -172,20 +177,15 @@ filesystem as read-only and VMware as unable to start, which is why the guest ga
 stopped. On 2026-11-01 `/` is mounted `rw`, both modules are loaded and `vmrun list`
 answers, so that note is stale; the exposure it describes is not.
 
-## What is deliberately out of scope
+## Scope boundaries
 
-**win32k and ntgdi.** Rendering *is* the appearance guarantee. A different rasteriser
-means different pixels, and "identical looks" is a stated goal. GDI stays.
+**Included:** an independently bootable kernel; boot/CPU/platform support; interrupt handling; memory, scheduling, process/thread and syscall services; object/handle, IPC and security services; I/O, storage/filesystems and drivers; and a defined XP-inspired ABI. Network compatibility is one subsystem, not the whole kernel.
 
-**The kernel proper (P5).** Memory manager, object manager, scheduler, I/O — ~60M lines
-with **no external specification** to implement against and no way to differential-test
-bit-identical internal state. The honest options are adopting ReactOS's clean-room kernel
-(GPL/LGPL, which changes this project's licence) or accepting that layer stays Microsoft's.
-Decide after P2 proves the method, not now.
+**Not automatically included:** a bit-for-bit clone of XP internals, undocumented behavior that cannot be observed, a Windows desktop, or wholesale reuse of Microsoft code. GUI and application compatibility require separate milestones after a bootable kernel exists.
 
-By line count, P1–P4 are roughly **5% of NT**. They are also the 5% that has published
-standards. That is the honest scope of "an open OS": a well-specified shell over a kernel
-nobody has legally rewritten.
+**Source provenance is a release gate.** The tracked XP-source experiments
+formerly under `boot/` and `kernel/` have been removed; those paths are reserved
+for independent implementation. See `SCOPE.md` for the current boundary.
 
 ---
 
@@ -206,12 +206,9 @@ nobody has legally rewritten.
 
 ## Next actions
 
-1. **K3 — capture `traffic.tx` and `traffic.rx` in the guest.** The driver builds and the VM
-   works again; this is the last step between the plan and a proven frame path.
-2. **Decide the P4 transport provider** (open decision 1), then drain the socket core's
-   requests through it.
-3. **Re-run the 8 guest gates and date the result.** The 17 host gates were re-measured
-   2026-11-01; the guest gates have no timestamp newer than their documents.
+1. **AK4 — execution and synchronization.** Add threads, context switching, a scheduler, interrupt-safe synchronization, and timer waits; define SMP scope first.
+2. **AK5 — processes and system-call boundary.** Add privilege separation, process address spaces, executable loading, and validated user/kernel transfer.
+3. Continue AK6–AK9 in the milestone table; keep XP-only driver work separate from Anemos kernel implementation.
 
 ### Completed, in order
 

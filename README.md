@@ -1,45 +1,43 @@
 # Anemos
 
-An open-source operating system inspired by Windows XP: new code, written to
-2026 standards, validated for behavioural compatibility against XP itself.
+An open-source operating system with an independently implemented kernel,
+inspired by Windows XP and judged by compatibility with XP's observable behavior.
 
-Not a fork. Not a leaked release. New code, written against public
-specifications, with XP's observed behaviour as the oracle.
+Anemos's kernel is not a fork of Microsoft's. XP is the comparison target, not
+the implementation. The repository contains no Microsoft-origin kernel or boot
+implementation; those historical experiments are removed from the checkout and
+local Git history. See `SCOPE.md` and `NOTICE.md` for the provenance boundary.
 
 Public repository: <https://github.com/NickLitharis/anemos>
 
 ## The idea in one paragraph
 
-Windows XP is the compatibility target, not the codebase. The leaked XP source
-is a specification and a test fixture: it is not in this repository, and no
-replacement is derived from it. Where our behaviour and XP's disagree, XP is
-right — the disagreement is recorded, not "fixed". The work is deliberately
-front-loaded on the layer that has published standards (RFCs, NIST vectors,
-documented ABIs) and can therefore be proved: DNS, DHCP, crypto, and the
-protocol edges of the network stack. That is roughly 5% of NT by line count, and
-it is the 5% that can be verified without a clean-room rewrite of a kernel that
-has no external specification.
+Windows XP is the compatibility target, not the codebase. The project must boot
+and run its own kernel. Existing P0–P4 libraries and test infrastructure are
+useful building blocks, but they do not constitute a kernel. New kernel code
+must have recorded provenance and must not be transliterated from Microsoft
+source.
 
 ## Status
 
-The method is proven and the first replacements are written and gated. There is
-**no Anemos kernel yet**: there is a verified way to build and judge one, and a growing
-set of subsystems that already pass it.
+The compatibility method and several libraries are proven. **AK3 now boots an
+independent Anemos kernel with exception handling, a hardware timer, physical
+page allocation/mapping, and a bounded kernel heap.**
 
-- **P0–P3 complete.** Both gates passed (G1 ABI, G2 conformance), P1's algorithms and
-  the exhaustive `STATUS→DOS` map are proved, P2's DNS and DHCP units are gated against
-  independent implementations, and P3's crypto engine and CSP SPI surface run
-  identically in the host harness and inside XP.
-- **P4 written, gated where it can be.** XP Winsock conformance is 47/47, the socket
-  core and resolver are proved against models, and lwIP (BSD-3) is the adopted stack;
-  the transport provider is the open decision.
-- **Kernel network driver in progress.** K1 (loadable driver) and K2 (lwIP in the
-  kernel) passed in the guest, K3 binds to NDIS, and its frame path builds with the
-  guest run pending.
+- **P0–P4:** host-side conformance infrastructure, independently implemented
+  algorithms/protocols, and XP compatibility probes remain supporting work.
+- **AK1–AK3 kernel:** `./boot/build.sh` builds a C23 x86_64 ELF, packages a
+  Limine BIOS ISO, and checks page allocation/reuse, virtual aliases, heap
+  split/coalescing/exhaustion, timer interrupts, and divide-by-zero panic output
+  over QEMU serial.
+- **Current limit:** no scheduler, process address spaces, user-mode execution,
+  or device services yet.
+- **`anemos/net/kernel/`:** an XP-loaded NDIS driver experiment, not an
+  independent kernel. Its latest commit records a boot-time `0xD1` fault; frame
+  send/receive is unproven.
 
-Two things sit outside that list. XP's own kernel can be built from source and boots a
-full install — that is Microsoft's code, used as the oracle, not the deliverable. And
-P5's kernel proper is out of scope, with the network transport as its only exception.
+The next kernel milestone is AK4: execution, context switching, scheduling,
+and synchronization. See **`PLAN.md`** for the sequence and evidence.
 
 Per-milestone detail, dates and evidence are in **`CHANGELOG.md`**; `PLAN.md` is the
 authoritative statement of scope and measured status.
@@ -74,14 +72,12 @@ The two gates that had to pass before any replacement:
 
 ## Layout
 
-```
-anemos/        the replacements: md5, sha1, base64, crc32, nls, statusdos,
-               dns, dhcp, crypto, csp
-docs/          rules, policies, measurements, and one document per gate/unit
-harness/       razzle wrappers for the legacy build, and the conformance runner
-tools/         ntfspatch.py, code generation, the ABI proof, toolchain.lock
-kernel/ boot/  earlier freestanding experiments, kept as verified history
-Source         symlink to the XP source outside this repository (gitignored)
+anemos/        independent libraries and compatibility layers
+kernel/        original C23 kernel, x86_64 exception/IRQ handling and PIT
+boot/          Limine BIOS build configuration and QEMU smoke gate
+docs/          engineering rules, measurements, and milestone evidence
+harness/       XP build wrappers and behavioral conformance runner
+Source/        external, gitignored XP source reference/oracle
 ```
 
 `Source/` is **not** part of this project. It is leaked Microsoft code, kept
@@ -96,10 +92,12 @@ history and are not redistributed.
 
 ## Verify it
 
-Every unit is a self-contained gate; none needs a VM except the two original
-oracle gates.
+`./boot/build.sh` is the AK3 QEMU acceptance gate: it builds the ISO and checks
+the memory allocator, virtual mapping, bounded heap, timer, and panic serial
+messages.
 
 ```sh
+./boot/build.sh              # AK3: build, boot QEMU, verify memory, timer and panic
 anemos/statusdos/run.sh     # STATUS->DOS, proved against XP for 2^32 statuses (14/14)
 anemos/dns/run.sh           # DNS codec + client (24/24)
 anemos/dhcp/run.sh          # DHCP codec + client (24/24)
@@ -112,46 +110,30 @@ tools/abi/run.sh            # G1, clang vs MSVC (15/15)
 `i686-w64-mingw32` once (outside the repo, under `~/.local/opt`). `csp` and
 `crypto` fail with a clear message until it has been run.
 
-The G2 runner and the kernel boot need the two VMDKs and the legacy toolchain;
-those are environment assets, not part of this repository. The Microsoft-derived
-binaries and logs those checks produce are kept locally in `~/anemos-private/`,
-not published here.
+The G2 runner and the **XP oracle boot** need the two VMDKs and legacy toolchain;
+those are environment assets, not part of this repository. This is not an
+Anemos-kernel boot. Microsoft-derived binaries and logs are kept locally in
+`~/anemos-private/`, not published here.
 
-## Scope, and the honest limit
+## Scope and current limit
 
-- **P1 — pure algorithms.** CRC-32, MD5, SHA-1, Base64, NLS tables, the
-  `STATUS→DOS` map. Done.
-- **P2 — wire formats.** DNS (RFC 1035) and DHCP (RFC 2131/2132), each with a
-  codec, a client, and an independent oracle. Done.
-- **P3 — crypto.** A modern engine (OpenSSL 3.5.7) behind the empty `rsaenh`
-  slot. The engine, the provider SPI, AES (one-shot and streaming) and RSA
-  sign/verify are proved. The CryptoAPI path is proved as plumbing under Wine, including the
-  little-endian signature convention, and the in-guest SPI run is identical to
-  the host. OpenSSL is hardened against CryptoAPI RAND re-entry; stock XP
-  still verifies the provider image signature; the flag experiment confirms
-  every route fails with `NTE_BAD_SIGNATURE`, so that path is documented as
-  unclaimable rather than patched.
-- **P4 — network stack.** ~288 C files; the largest replacement, deliberately
-  last. Started with the host-testable Winsock address layer (P4.1). The
-  architecture question is settled — lwIP (BSD-3) was adopted and ReactOS
-  rejected — and the remaining choice is the transport provider, blocked on the
-  P5 scope decision (`docs/P4-TRANSPORT-DECISION.md`).
-- **P5 — the kernel proper, with one exception.** The network stack now needs a
-  kernel driver and is in scope (`docs/P5-NETWORK-KERNEL.md`); its first
-  loadable driver passed in XP on 2026-10-22, lwIP runs inside it with an
-  in-kernel loopback self-test, and the protocol is installed through netcfg
-  and bound by NDIS. The frame path (receive plus ARP transmit) builds as a
-  68,608-byte image with its kernel imports resolved; running it in the guest
-  is the next step. Memory manager,
-  object manager, scheduler, I/O:
-  ~60M lines with no external specification and no way to differential-test
-  bit-identical internal state. Out of scope. The honest options are adopting
-  ReactOS's clean-room kernel (GPL/LGPL, which changes this project's licence)
-  or accepting that layer stays Microsoft's.
+The goal is an independently bootable XP-inspired kernel. AK3 proves the boot
+path, CPU exception reporting, timer interrupts, physical page allocation,
+4-level page mapping, and a bounded kernel heap. Next: scheduling, processes and
+system calls, kernel services, I/O/drivers, and a defined XP-compatible ABI.
+Networking is one subsystem.
 
-**win32k and ntgdi are also out.** Rendering *is* the appearance guarantee; a
-different rasteriser means different pixels, and identical looks is a stated
-goal. GDI stays.
+Existing P1–P4 work remains reusable: independently implemented algorithms,
+DNS/DHCP, crypto experiments, Winsock models and XP observation gates. The XP
+NDIS/TDI driver work is a separate compatibility experiment; it depends on
+Microsoft's kernel and cannot stand in for Anemos's kernel.
+
+**Release boundary:** the XP-derived experiments and outputs formerly tracked
+under `kernel/` and `boot/` were removed from this checkout and local Git refs.
+The cleaned history has been force-pushed to the public remote; old clones
+must be recreated or carefully reset. The current AK1–AK3 files in those paths
+are original code. The ignored `Source/` symlink is external and is not part
+of the repository.
 
 ## Three measured P3 constraints
 

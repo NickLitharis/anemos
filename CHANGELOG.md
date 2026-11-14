@@ -11,6 +11,21 @@ record of what changed.
 
 ### Added
 
+- **AK1 — independent boot.** Added an original freestanding C23 x86_64 entry point,
+  ELF linker layout, and Limine BIOS boot configuration. `./boot/build.sh` fetches
+  Limine v12.9.6 with a pinned SHA-256, builds the ISO, and boots it in QEMU; the
+  original smoke gate verified `ANEMOS: boot ok`. AK2 subsequently added exception
+  and timer support.
+
+- **AK2 — CPU and platform foundation.** Added IDT exception gates (vectors 0–31),
+  remapped the PIC, and configured the PIT timer. The QEMU smoke gate verified the
+  boot line, timer ticks, and injected divide-by-zero panic over serial.
+
+- **AK3 — memory management.** Added Limine memory-map/HHDM requests, a zeroing
+  4-KiB physical page allocator, 4-level page mapping with uncached MMIO support,
+  and a fixed 64-KiB kernel heap with splitting/coalescing. The QEMU gate checks
+  page reuse, aliases, heap exhaustion/reuse, then AK2 timer and fault handling.
+
 - **K3 — frame path.** NDIS packet-filter set, MAC query, a `ProtocolReceivePacket`
   handler that counts received frames and ARP replies, and an ARP request transmitted
   with `NdisSend`. `anemos/net/kernel/build.sh` produces a 68,608-byte `anemosnet.sys`
