@@ -15,12 +15,12 @@ Build Anemos as an **original, open-source kernel and operating system inspired 
 
 Anemos must boot and run its own kernel without Microsoft's kernel. Compatibility is an outcome to earn subsystem by subsystem, not a claim that the kernel can reproduce undocumented internals exactly.
 
-Three constraints follow, and they are not negotiable:
+Four constraints follow, and they are not negotiable:
 
 1. **Independent implementation.** No Microsoft source or mechanically transliterated logic in Anemos. Use public specifications and observed behavior; keep provenance for new code.
 2. **Open-source boundary.** Only files with established original or third-party licensing may ship as Anemos. Existing XP-derived experiments require provenance and release review.
 3. **Compatibility.** XP is the behavioral oracle. Record differences; do not change XP to make a test pass.
-4. **Standards.** C23 / C++23, clang 23.1.3, `docs/OS-CODING-RULES.md` and `docs/SIZE-POLICY.md`.
+4. **Standards.** C23 / C++23, clang 23.1.3, `docs/OS-CODING-RULES.md` and `docs/SIZE-POLICY.md`. Apply the documented NASA/JPL Power of Ten adaptations and test-first workflow below; do not claim strict NASA compliance or certification.
 
 ---
 
@@ -29,8 +29,11 @@ Three constraints follow, and they are not negotiable:
 Status is backed by explicit gates, not compilation alone.
 
 Host-side gates last re-measured 2026-11-01: all 17 exit 0 with 162 passing assertions
-and no skips; the 8 XP guest gates were not run. The AK3 boot/memory gate passed on
-2026-11-13 with `./boot/build.sh`. A ✅ below means a gate in this tree proves it.
+and no skips; the 8 XP guest gates were not run. The expanded AK4 and AK5
+privilege-boundary QEMU gates passed on 2026-11-14 with `./boot/build.sh`. The
+completed AK5 process/address-space/ELF gate also passes: its serial log includes
+the AK3, AK4, all three AK5 markers, and AK2 timer/fault checks. A ✅ records only its
+named gate, not production readiness, exhaustive verification, or coding-standard compliance.
 
 Legend: ✅ gated and passing · ◐ partial, with the missing piece named · ⏳ not started or not run.
 
@@ -70,13 +73,14 @@ Legend: ✅ gated and passing · ◐ partial, with the missing piece named · �
 
 P0–P4 delivered a valuable host-side conformance method and reusable, independently implemented libraries and protocols. They are not a kernel.
 
-The historical `kernel/` and `boot/` XP-source experiments were removed. AK1–AK3
+The historical `kernel/` and `boot/` XP-source experiments were removed. AK1–AK5
 now contain the independently authored kernel: Limine boot, CPU exceptions and
-timer interrupts, physical page allocation, 4-level virtual page mapping, and a
-bounded 64-KiB heap. `./boot/build.sh` boots QEMU and verifies allocator, mapping,
-heap, timer, and injected-fault behavior over serial. Process address spaces and
-scheduling are not implemented yet. `anemos/net/kernel/` remains an XP-loaded
-driver experiment, not an Anemos kernel.
+timer interrupts, physical page allocation, 4-level virtual mapping, a bounded
+64-KiB heap, single-core kernel threads, a CPL3 syscall/fault probe with bounded
+buffer copy-in, four isolated process address spaces, and a validated static
+in-memory ELF64 loader with teardown. General I/O services, filesystem loading,
+and scheduling remain deferred. `anemos/net/kernel/` remains an XP-loaded driver
+experiment, not an Anemos kernel.
 
 The project now targets an independently implemented, bootable XP-inspired kernel. P0–P4 remain reusable compatibility work; they no longer define project completion.
 
@@ -144,14 +148,17 @@ Each phase begins only when the previous gate passes.
 | **AK1 — independent boot** | ✅ | `./boot/build.sh` builds the freestanding ELF, makes a Limine BIOS ISO, boots QEMU, and verifies `ANEMOS: boot ok` on serial. No XP kernel or copied XP RTL in the boot path. |
 | **AK2 — CPU and platform foundation** | ✅ | `./boot/build.sh` verified IDT exception vectors 0–31, remapped PIC/PIT IRQ0 ticks, and an injected divide-by-zero panic on QEMU serial after three timer ticks. |
 | **AK3 — memory management** | ✅ | `./boot/build.sh` verifies Limine memory-map/HHDM setup, zeroed 4-KiB allocation/free/reuse, page mapping and aliases, 64-KiB heap alignment/split/coalesce/OOM/reuse, then AK2 timer/fault checks on QEMU. |
-| **AK4 — execution and synchronization** | ⏳ Threads, context switching, scheduler, interrupt-safe synchronization and timer waits; decide SMP scope before adding multiprocessor support. |
-| **AK5 — processes and system-call boundary** | ⏳ User/kernel privilege separation, process address spaces, executable loading, system-call ABI and captured user-buffer transfer; negative tests cover invalid pointers and privilege violations. |
-| **AK6 — kernel services and security** | ⏳ Dispatcher objects, handles, waits, events, timers, IPC and a defined access-control model; test lifecycle, authorization and concurrency invariants. |
+| **AK4 — execution and synchronization** | ✅ single-core gate and targeted negative controls; exhaustive validation pending | `./boot/build.sh` exercises cooperative switching, timer preemption, semaphore signal-before-wait and blocked-waiter wakeup, timed waits, idle wakeup, thread-slot exhaustion and reuse after termination. Temporary fault injections losing an early semaphore signal, preventing thread reclamation, and disabling interrupts in the idle halt each made the QEMU gate fail with the corresponding AK4 test failure or timeout; restored-source gate passes. SMP and exhaustive interrupt-interleaving verification remain out of scope. |
+| **AK5 — processes and system-call boundary** | ✅ bounded process, ELF and user-buffer syscall slices; general I/O remains | `./boot/build.sh` verifies four isolated process roots, bounded static ELF64 loading, CPL3 execution, page permissions, rejection/cleanup cases, process teardown/slot reuse, a bounded one-page copy-in checksum syscall with invalid-range rejection, and retained AK2–AK5 gates. |
+| **AK6 — kernel services and security** | ◐ kernel-internal events, handles and timed waits gated | `./boot/build.sh` gates fixed-capacity events, generation-checked handles, rights, reference-counted close, exhaustion/reuse, manual-reset and relative-timeout waits. Cancellation, timer objects, IPC, per-process handle tables and user-visible security remain unimplemented. |
 | **AK7 — I/O, storage and drivers** | ⏳ Device/driver model, request dispatch, interrupt/DMA contracts, and a usable filesystem/storage path; start with emulated devices and bounded integration tests. |
 | **AK8 — XP compatibility surface** | ⏳ Implement prioritized documented/observable NT-compatible system calls, exports and driver ABI; differential tests against XP. Do not promise undocumented internal identity. |
 | **AK9 — network integration** | ⏳ Integrate independently licensed networking behind Anemos-owned kernel interfaces; XP NDIS/TDI experiments remain reference evidence, not the Anemos kernel. |
 
-AK0–AK3 are complete. AK4 is next: add execution, context switching, scheduling and synchronization while keeping the current single-core scope explicit. Process address spaces remain AK5. Do not extend the XP-only network driver as a substitute for kernel work.
+AK0–AK5 have passing QEMU gates for the implemented slices. AK5 now includes
+bounded process address spaces, executable loading and a user-buffer syscall
+with checked one-page copy-in. SMP and general I/O remain out of scope. Do not
+extend the XP-only network driver as a substitute for kernel work.
 
 P1 comes before P2 because it needs no VM, so the runner gets exercised cheaply before it
 is asked to judge anything hard.
@@ -170,9 +177,11 @@ XP can validate observable ABI and behavior, but it cannot be the specification 
 
 ### The one dependency
 
-Every guest gate needs this host: VMware, the `vmmon`/`vmnet` modules, and
-`~/vms/xpvmware/{xp-pristine,xp}.vmdk`. That is a single point of failure for the whole
-method, and it has already stopped work once — `docs/P4-NETWORK.md` recorded the root
+Every XP guest gate needs this host: VMware, the `vmmon`/`vmnet` modules, and
+`~/vms/xpvmware/{xp-pristine,xp}.vmdk`. The independent AK kernel gate uses QEMU
+and Limine instead; it does not require those XP disks. The XP environment is a
+single point of failure for compatibility testing and has already stopped work
+once — `docs/P4-NETWORK.md` recorded the root
 filesystem as read-only and VMware as unable to start, which is why the guest gates
 stopped. On 2026-11-01 `/` is mounted `rw`, both modules are loaded and `vmrun list`
 answers, so that note is stale; the exposure it describes is not.
@@ -202,13 +211,206 @@ for independent implementation. See `SCOPE.md` for the current boundary.
   example.
 - **Size is a budget**, not an afterthought: ≤64 KB `.text` per subsystem, `-Oz`.
 
+### Development workflow
+
+`docs/OS-CODING-RULES.md` is the detailed authority. Its NASA/JPL-inspired
+profile requires simple control flow, bounded loops, small functions, checked
+results, side-effect-free assertions, narrow scope and static analysis. Kernel
+exceptions are documented there; compliance must be checked, not inferred from
+a successful build. TDD complements these rules; it is not a NASA certification.
+
+For each new behavior or bug fix:
+
+1. **Contract:** specify inputs, ownership, errors, resource bounds and invariants.
+   For concurrent code, include interrupt context, protected state and wait/wakeup
+   transitions. Acceptance: each requirement has an observable check.
+2. **Red:** write a focused behavioral test and observe its intended failure before
+   implementing. Use deterministic host tests where possible and QEMU/hardware for
+   CPU-dependent behavior. Document an impractical test-first case and its runnable
+   substitute, as permitted by coding rule 12.
+3. **Green:** implement the smallest correct change and run the focused check.
+   Acceptance: the test passes without weakening its contract.
+4. **Refactor and verify:** simplify, review against coding rules, run applicable
+   compiler/static-analysis checks and the affected gate, and measure linked code
+   size against policy. Validate critical tests with negative controls. Record
+   commands, results and unverified limits; update status and provenance documents.
+
+The expanded AK4 checks were added after the implementation already passed, so no
+red-before-green result exists for those changes. Three temporary fault-injection
+negative controls did demonstrate that the tests reject a lost early semaphore
+signal, unreclaimed terminated threads and an idle halt with interrupts disabled.
+The test orchestration was split into small helpers to meet §14. The gate is still
+single-core and does not exhaustively explore interrupt timing; existing atomic
+critical sections were reviewed, not model-checked.
+
 ---
 
 ## Next actions
 
-1. **AK4 — execution and synchronization.** Add threads, context switching, a scheduler, interrupt-safe synchronization, and timer waits; define SMP scope first.
-2. **AK5 — processes and system-call boundary.** Add privilege separation, process address spaces, executable loading, and validated user/kernel transfer.
-3. Continue AK6–AK9 in the milestone table; keep XP-only driver work separate from Anemos kernel implementation.
+1. ~~**Close AK4 validation before AK5.**~~ **Completed 2026-11-14.** Reviewed
+   scheduler code and contracts, split the oversized test orchestration, ran
+   temporary fault-injection builds for semaphore signal retention, thread reuse
+   and idle wakeup (each failed in the intended AK4 path), then reran the restored
+   `./boot/build.sh` successfully. No red-before-green history for the tests; no
+   exhaustive interrupt-interleaving or SMP proof. Evidence is the serial log at
+   `out/ak3/serial.log`; the successful gate prints `AK4: thread tests ok`.
+2. ~~**AK5 contract and privilege separation.**~~ **Completed 2026-11-14 (static-probe boundary only).** Entered one static probe in a
+   dedicated CR3 derived from Limine's root: copy the present high-half PML4
+   entries while clearing U/S at the PML4 level; leave lower-half entries empty.
+   The supervisor PML4 bit prevents CPL3 access to every inherited mapping below
+   that entry, regardless of lower-level bits. This proves CPL3/kernel permission
+   enforcement, not process lifecycle or multi-process isolation. Reserve user
+   virtual addresses `[0x00400000, 0x0000800000000000)`; keep page zero and lower
+   addresses unmapped. Allocate dedicated user code and stack pages; never map
+   kernel text as user code. Build fresh lower-level user tables with U/S set at
+   each level, and reject large-page collisions. Code is read/execute; stack is
+   read/write/NX. Kernel image, IDT/GDT/TSS, entry stacks, HHDM and MMIO remain
+   supervisor-only in the test CR3. NX is mandatory: fail setup if NX/NXE is
+   unavailable. Verify the new root's effective permissions before CPL3.
+
+   Install and load an Anemos-owned GDT with named ring-0/ring-3 code and data
+   selectors plus a 64-bit TSS; reload CS/data selectors and execute `ltr`.
+   Configure IDT vectors 0–31 with the ring-0 code selector and add vector `0x80`
+   as a DPL3 interrupt gate. TSS RSP0 points to a dedicated, supervisor-only
+   kernel-entry stack. Use `iretq` for first CPL3 entry; sanitize user RFLAGS
+   (IOPL, NT and VM clear, reserved bit set). Keep user IF clear for this probe;
+   software syscall entry still works, while asynchronous CPL3 scheduling is
+   deferred until its entry path is designed.
+
+   Initial `int 0x80` ABI is scalar-only: RAX=1 adds 7 to RDI and returns the
+   result in RAX; RAX=2 exits the probe; unsupported service numbers return
+   `UINT64_MAX`. No syscall dereferences user pointers. On CPL3 entry, inspect
+   saved SS/RSP only after confirming saved CS has RPL 3. The syscall result
+   returns to user with `iretq`.
+   A CPL3 page fault or general protection fault records vector/error/RIP and
+   returns to an explicit ring-0 recovery trampoline on the saved kernel-entry
+   stack; it must not retry the faulting user instruction or expose a kernel
+   address. CPL0 exceptions retain the panic path.
+
+   The first probe deliberately reads a supervisor mapping and executes a
+   privileged instruction to test containment. The probe itself does not provide
+   a general executable loader, process lifecycle, multi-process isolation, or
+   user-buffer ABI.
+
+   **Acceptance:** a user-mode probe calls the scalar service and returns the
+   expected result; supervisor-page read (#PF error 5), code write (#PF error 7),
+   stack execution (#PF error 21) and privileged `cli` (#GP error 0) are contained.
+   The kernel continues, and the AK4 and AK2 gates still pass. The restored-source
+   `./boot/build.sh` log includes `AK5: privilege tests ok`.
+
+   Temporary negative controls confirmed the test detects regressions: a wrong
+   syscall result failed the scalar test; omitting #PF and #GP handling produced
+   the expected kernel panic paths (vectors 14/error 5 and 13/error 0). All
+   mutations were restored before the passing acceptance run.
+
+   **Test-first exception:** no CPL3 transition harness existed before this first
+   vertical slice. Its transition, handlers and initial behavioral checks were
+   implemented together, so there was no red-before-green run for this slice.
+   The QEMU acceptance gate and later negative controls validate the behavior and
+   failure detection. New AK5 behavior must use the normal test-first workflow.
+3. ~~**AK5 processes and executable loading.**~~ **Completed.** Four user roots and four
+   process slots, with bounded in-memory static ELF64 loading and teardown, are
+   gated below.
+   a. Support four simultaneously owned user CR3 roots. Each 32-page ledger
+   includes its root, every lower-level page-table page, image page and stack
+   page; inherited kernel mappings are shared and never freed by process teardown.
+   Reject destruction while a root is active. Red/green QEMU test: two roots map
+   one user VA to different pages, read different values after CR3 switches, then
+   return `page_free_count()` to baseline after destruction.
+   b. Add a fixed four-slot process table and an in-memory loader for static,
+   little-endian x86-64 ELF64 `ET_EXEC`. Accept only 1–8 `PT_LOAD` headers;
+   reject all other header types. Require ELF/current version, exact header sizes,
+   `EM_X86_64`, page-aligned file/virtual starts, `p_align == 4096`, `p_filesz <=
+   p_memsz`, checked file/virtual ranges, non-overlapping pages, `PF_R`, no
+   unknown flags or W+X, and entry inside file-backed executable bytes. Limit to
+   eight image pages in `[0x00400000, 0x40000000)` plus one fixed RW/NX stack
+   page. Zero allocated pages before copying bytes so BSS is zero. Reject dynamic
+   or interpreted images. The ledger limit includes all page-table overhead;
+   any allocation/map failure must tear down all partial state and release the slot.
+   c. Acceptance: create four live processes; reject a fifth without changing the
+   free-page count; reject destroying an active root; destroy one, then reuse its
+   slot. Two valid images put different data at the same VA and execute through
+   CPL3, each returning its own value. Verify code RX, data RW/NX, stack RW/NX,
+   read-only segment enforcement, malformed image rejection and exact free-page
+   baseline after failure/destruction. `./boot/build.sh` retains AK2–AK5 gates.
+   This slice loads in-memory images only; scheduling, dynamic linking, filesystem
+   lookup and user-buffer syscalls remain deferred.
+
+   **Acceptance evidence:** the restored-source `./boot/build.sh` gate prints
+   `AK5: address-space tests ok` and `AK5: process tests ok`, then continues
+   through `AK2: timer ok` and the expected injected divide-by-zero panic.
+   Tests prove same-VA isolation and CPL3 execution of two distinct images,
+   RX/RW-NX/stack permissions, malformed-image rejection, four-process capacity,
+   active-root destroy refusal, slot reuse and exact page-count restoration.
+   Test-first red runs rejected a second root and rejected a valid ELF before
+   implementation. Negative controls for `p_filesz > p_memsz` and rollback after
+   an allocated-but-unmapped image page failed the gate; the restored gate passed.
+   Strict pinned-clang diagnostics passed on every changed C translation unit.
+   This does not validate scheduling, dynamic linking, filesystem loading or
+   general user-buffer syscall safety.
+4. ~~**AK5 system-call and buffer-transfer contract.**~~ **Completed.** `int 0x80`
+   service 3 takes the user buffer address in RDI and length in RSI, accepts
+   1–32 bytes contained in one mapped user page, and returns their unsigned-byte
+   sum in RAX. Invalid, overflowing, unmapped, supervisor-only and cross-page
+   ranges return `UINT64_MAX` without privileged side effects. CPL3 tests cover a
+   valid transfer plus null, unmapped, cross-page, overflowing, zero-length and
+   oversized requests. The restored `./boot/build.sh` gate passes all AK2–AK5
+   checks. Filesystem and general I/O services remain outside this contract.
+5. **AK6.1 — kernel event objects and handles.** Fixed pools of eight event objects
+   and sixteen handles; opaque generation-checked handles; explicit signal/reset/query
+   rights; duplicate handles can only reduce rights; close drops the reference and
+   frees the object after its last handle closes. **Completed:** `./boot/build.sh`
+   prints `AK6: event and handle tests ok` and continues through AK2. Tests cover
+   event state transitions, denied rights, stale handles, duplicate lifetime,
+   object/handle exhaustion and slot reuse. A temporary broken-set mutation failed
+   at the state-transition test; restored-source gate passed. Strict pinned-clang
+   diagnostics and clang-analyzer passed. Blocking waits, timers, IPC, per-process
+   handle tables, and user-visible security need separate contracts.
+   **TDD exception:** AK6.1 implementation preceded its tests. The later
+   negative control demonstrates fault detection, not red-before-green TDD.
+
+6. **AK6.2 — manual-reset event waits.** On a single CPU, a wait requires
+   query access and returns immediately for a signaled event; otherwise atomically
+   register and block until set. Set wakes all registered waiters and remains
+   signaled until reset. A blocked wait pins its object even if all handles close;
+   signaling requires another live handle. Wait registration, set, reset, close,
+   wakeup and object reclamation are serialized with interrupts disabled.
+   TDD evidence: a temporary nonblocking stub failed the immediate-wait test;
+   the implementation then passed `./boot/build.sh`. Tests exercise an already
+   signaled event, reset, denied access, two blocked waiters, close of their
+   handle before another handle signals, and both waiters waking. Timed waits,
+   cancellation and SMP remain outside this contract.
+
+7. **AK6.3 — timed event waits.** Add a kernel-only relative tick timeout:
+   signaled events succeed immediately; zero ticks polls; otherwise block and
+   report timeout if the timer wins. Signal and timeout resolve atomically with
+   interrupts disabled, and the winning result persists even if the event is
+   reset before the waiter resumes. Pin the event throughout a blocked wait.
+   **TDD evidence:** the QEMU gate first failed with `AK6: timed event polling
+   failed` against the unsupported stub; the implemented path then passed.
+   Tests exercise both polling outcomes, timeout after three ticks, access denial,
+   and signal-before-expiry after closing the waiter's handle. Strict clang
+   diagnostics and clang-analyzer passed. Cancellation, SMP, exhaustive
+   signal/timeout interleavings and XP compatibility remain unverified.
+
+8. **AK6.4 — wait cancellation.** `event_cancel_wait(handle)` cancels all blocked
+   waits on the event object (query access required); waiters wake with
+   `EVENT_STATUS_CANCELLED`, the signaled state is unchanged, and signal-vs-cancel
+   resolves atomically with interrupts disabled. Scope and sequencing for
+   AK6–AK9: `docs/AK6-AK9-SCOPE.md`. Gate: `./boot/build.sh` prints
+   `AK6: wait cancellation tests ok`; a no-op stub fails the gate first (red).
+   Negative controls: no-waiter cancel, denied access, stale handle,
+   close-while-blocked. **Completed 2026-11-23.** Red run: a no-op stub failed the
+   gate with `AK6: wait cancellation failed`; the implemented path then passed and
+   `./boot/build.sh` prints `AK6: wait cancellation tests ok` (see
+   `out/ak3/serial.log`). `event_wait`/`event_wait_for` now return
+   `EVENT_STATUS_CANCELLED` when cancelled; `thread_cancel_channel_locked` wakes
+   waiters with the cancelled flag set, atomically with interrupts disabled, and
+   the event's signaled state is unchanged (a later set still wakes a new waiter).
+   clang --analyze clean on the changed TUs; linked `.text` 18,181 B. One
+   test-authoring fix during green: the close-while-blocked phase must close the
+   second handle before asserting object reclamation. SMP, exhaustive
+   signal/cancel/timeout interleavings and XP compatibility remain unverified.
 
 ### Completed, in order
 

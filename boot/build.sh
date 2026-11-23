@@ -49,7 +49,7 @@ if [[ ! -x "$LIMINE_DIR/limine" ]]; then
 fi
 
 mkdir -p "$OUT" "$ISO_ROOT/boot"
-for source in main serial interrupts limine_requests memory paging heap memory_test; do
+for source in main serial interrupts limine_requests memory paging heap memory_test thread thread_test user user_root_test process process_test event event_test; do
     "$CC" \
         -std=c23 \
         -target x86_64-unknown-elf \
@@ -59,16 +59,22 @@ for source in main serial interrupts limine_requests memory paging heap memory_t
         -mno-mmx -mno-sse -mno-sse2 \
         -c "$ROOT/kernel/$source.c" -o "$OUT/$source.o"
 done
-"$CC" \
-    -target x86_64-unknown-elf \
-    -ffreestanding -fno-pic -fno-pie -mno-red-zone \
-    -c "$ROOT/kernel/interrupts.S" -o "$OUT/interrupts-asm.o"
+for source in interrupts thread user; do
+    "$CC" \
+        -target x86_64-unknown-elf \
+        -ffreestanding -fno-pic -fno-pie -mno-red-zone \
+        -c "$ROOT/kernel/$source.S" -o "$OUT/$source-asm.o"
+done
 "$LD" \
     -nostdlib -static --no-undefined -z max-page-size=0x1000 \
     -T "$ROOT/kernel/linker.ld" -o "$OUT/anemos.elf" \
     "$OUT/main.o" "$OUT/serial.o" "$OUT/interrupts.o" \
     "$OUT/limine_requests.o" "$OUT/memory.o" "$OUT/paging.o" \
-    "$OUT/heap.o" "$OUT/memory_test.o" "$OUT/interrupts-asm.o"
+    "$OUT/heap.o" "$OUT/memory_test.o" "$OUT/interrupts-asm.o" \
+    "$OUT/thread.o" "$OUT/thread_test.o" "$OUT/thread-asm.o" \
+    "$OUT/user.o" "$OUT/user-asm.o" "$OUT/user_root_test.o" \
+    "$OUT/event.o" "$OUT/event_test.o" \
+    "$OUT/process.o" "$OUT/process_test.o"
 
 cp "$OUT/anemos.elf" "$ISO_ROOT/boot/anemos.elf"
 cp "$ROOT/boot/limine.conf" "$ISO_ROOT/limine.conf"
@@ -81,7 +87,7 @@ genisoimage -R -r -J \
 
 rm -f "$SERIAL_LOG" "$QEMU_LOG"
 set +e
-timeout 10s "$QEMU" \
+timeout 15s "$QEMU" \
     -machine q35 -m 256M -cdrom "$ISO" \
     -serial "file:$SERIAL_LOG" -monitor none -display none \
     -no-reboot -no-shutdown >"$QEMU_LOG" 2>&1
@@ -97,4 +103,28 @@ for expected in 'ANEMOS: boot ok' 'AK3: memory tests ok' 'AK2: timer ok' 'PANIC:
         exit 1
     fi
 done
-printf 'AK3 passed: %s\n' "$SERIAL_LOG"
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK4: thread tests ok'; then
+    printf 'Missing serial output "AK4: thread tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK5: privilege tests ok'; then
+    printf 'Missing serial output "AK5: privilege tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK5: address-space tests ok'; then
+    printf 'Missing serial output "AK5: address-space tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK5: process tests ok'; then
+    printf 'Missing serial output "AK5: process tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK6: event and handle tests ok'; then
+    printf 'Missing serial output "AK6: event and handle tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+if ! tr -d '\r' < "$SERIAL_LOG" | grep -Fxq 'AK6: wait cancellation tests ok'; then
+    printf 'Missing serial output "AK6: wait cancellation tests ok"; see %s and %s\n' "$SERIAL_LOG" "$QEMU_LOG" >&2
+    exit 1
+fi
+printf 'AK5 passed: %s\n' "$SERIAL_LOG"

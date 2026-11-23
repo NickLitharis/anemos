@@ -3,6 +3,8 @@
 #include "memory.h"
 #include "paging.h"
 #include "serial.h"
+#include "thread.h"
+#include "user.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -57,6 +59,7 @@ DECLARE_ISR(20); DECLARE_ISR(21); DECLARE_ISR(22); DECLARE_ISR(23);
 DECLARE_ISR(24); DECLARE_ISR(25); DECLARE_ISR(26); DECLARE_ISR(27);
 DECLARE_ISR(28); DECLARE_ISR(29); DECLARE_ISR(30); DECLARE_ISR(31);
 DECLARE_ISR(32);
+DECLARE_ISR(128);
 #undef DECLARE_ISR
 
 static struct idt_entry idt[256] __attribute__((aligned(16)));
@@ -172,6 +175,8 @@ int interrupts_init(void)
     for (size_t i = 0u; i < 33u; ++i) {
         set_gate((uint8_t)i, (uintptr_t)stubs[i], current_code_selector());
     }
+    set_gate(0x80u, (uintptr_t)isr_128, current_code_selector());
+    idt[0x80u].attributes = 0xEEu;
 
     const struct idtr descriptor = {
         .limit = (uint16_t)(sizeof(idt) - 1u),
@@ -219,10 +224,20 @@ static __attribute__((noreturn)) void panic_exception(const struct interrupt_fra
 
 void interrupt_dispatch(void *raw_frame)
 {
-    const struct interrupt_frame *frame = raw_frame;
+    struct interrupt_frame *frame = raw_frame;
     if (frame->vector == 32u) {
         outb(0x20u, 0x20u);
         ++tick_count;
+        thread_timer_tick();
+        return;
+    }
+    if (user_handle_trap(
+            frame->vector,
+            frame->error,
+            frame->cs,
+            &frame->rax,
+            frame->rdi,
+            frame->rsi)) {
         return;
     }
     panic_exception(frame);

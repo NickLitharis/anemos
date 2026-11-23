@@ -1,0 +1,24 @@
+.text
+
+/* SysV callee-saved registers; caller and interrupt frames stay on the stack. */
+.global thread_switch
+.type thread_switch, @function
+thread_switch:
+    pushq %rbp
+    pushq %rbx
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq %rsp, (%rdi)
+    movq %rsi, %rsp
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %rbx
+    popq %rbp
+    retq
+.size thread_switch, .-thread_switch
+
+.section .note.GNU-stack,"",@progbits
