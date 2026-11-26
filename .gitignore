@@ -29,5 +29,11 @@ docs/m0/EvcrtMsg.h.generated
 # Project-local agent skills (symlinks into ~/groundwork)
 /.agents/
 
-# writable VM working copy (see docs/P4-NETWORK.md / xp_run.sh)
-.vm/
+# writable VM working copy (see docs/P4-NETWORK.md / xp_run.sh); a symlink, so no trailing slash
+/.vm
+
+# clang --analyze reports
+*.plist
+
+# graft code maps (docs/KNOWLEDGE-GRAPH.md): generated, and may describe Microsoft source
+graft/
